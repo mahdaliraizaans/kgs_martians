@@ -663,7 +663,7 @@ class VehicleSimulationEngine {
     pose.isPlanetaryWarp = c.isPlanetaryWarp;
     pose.teleportEpoch = this.teleportEpoch;
     // Keep the real-DEM terrain frame centered on the rover's actual lat/lng.
-    syncTerrainAnchor(c.isGlobalOverride, c.lat, c.lng, c.x, c.y);
+    syncTerrainAnchor(c.isGlobalOverride, c.lat, c.lng, c.x, c.y, c.isPlanetaryWarp);
   }
 
   private stepFixed(dt: number, nowMs: number, input: DriveInputState): boolean {

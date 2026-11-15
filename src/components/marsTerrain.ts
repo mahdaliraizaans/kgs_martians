@@ -26,8 +26,9 @@ export const MAX_CHUNKS_BUILT_PER_FRAME = 1;
 
 export const TERRAIN_LOD_LEVELS: readonly TerrainLodLevelConfig[] = [
   { level: 0, segments: 64, distance: 0, hysteresis: 0.05 }, // ~4.7m vertex resolution near camera
-  { level: 1, segments: 24, distance: 360, hysteresis: 0.08 }, // ~12.5m mid-range resolution
-  { level: 2, segments: 10, distance: 840, hysteresis: 0.08 }, // ~30m distant fallback mesh
+  // segments must divide TERRAIN_HEIGHTMAP_RES (64) so every vertex reads a real heightmap sample
+  { level: 1, segments: 32, distance: 420, hysteresis: 0.08 }, // ~9.4m mid-range resolution
+  { level: 2, segments: 16, distance: 1000, hysteresis: 0.08 }, // ~19m distant mesh
 ];
 
 export interface TerrainChunk {

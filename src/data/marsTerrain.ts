@@ -450,7 +450,10 @@ interface TerrainAnchor {
 
 let terrainAnchor: TerrainAnchor | null = null;
 let terrainAnchorSeq = 0;
-const ANCHOR_REBASE_METERS = 1500;
+// Re-anchoring discards every terrain chunk, so only do it for a real jump. During autopilot the
+// lat/lng advances faster than the local x/y (long legs run at hundreds of m/s), which used to
+// trip a 1.5 km threshold about once a second and made the autopilot visibly choppy.
+const ANCHOR_REBASE_METERS = 8000;
 const JEZERO_DATUM_METERS = 2552; // hab/telemetry datum: telemetry elevation = h - 2552 = real MOLA
 
 function localToLatLng(x: number, z: number): { lat: number; lng: number } {
@@ -505,7 +508,8 @@ export function syncTerrainAnchor(
   lat: number,
   lng: number,
   x: number,
-  z: number
+  z: number,
+  isPlanetaryWarp = false
 ): boolean {
   if (!isGlobalOverride) {
     if (!terrainAnchor) return false;
@@ -513,6 +517,9 @@ export function syncTerrainAnchor(
     return true;
   }
   if (terrainAnchor) {
+    // Mid-warp the lat/lng races ahead of the local frame; keep the terrain steady and re-anchor
+    // once, after the rover slows to a normal speed.
+    if (isPlanetaryWarp) return false;
     const exp = localToLatLng(x, z);
     const dLat = (lat - exp.lat) * METERS_PER_DEG_LAT_CONST;
     let dLng = lng - exp.lng;
@@ -919,17 +926,32 @@ export function sampleTerrainGridElevation(
   const tx = fx - ix;
   const tz = fz - iz;
 
-  const row0 = iz * TERRAIN_GRID_STRIDE + ix;
-  const row1 = row0 + TERRAIN_GRID_STRIDE;
-
-  const h00 = data[row0];
-  const h10 = data[row0 + 1];
-  const h01 = data[row1];
-  const h11 = data[row1 + 1];
-
-  const h0 = h00 + (h10 - h00) * tx;
-  const h1 = h01 + (h11 - h01) * tx;
-  return minElev + (h0 + (h1 - h0) * tz) * decodeScale;
+  // Catmull-Rom bicubic: heights AND slopes are continuous across grid cells. (Plain bilinear made
+  // every 14 m cell a flat facet with a crease at its edges, which is what read as "low poly".)
+  const last = TERRAIN_GRID_RES;
+  const xa = ix > 0 ? ix - 1 : 0;
+  const xb = ix;
+  const xc = ix + 1 > last ? last : ix + 1;
+  const xd = ix + 2 > last ? last : ix + 2;
+  const rowAt = (z0: number): number => {
+    const o = (z0 < 0 ? 0 : z0 > last ? last : z0) * TERRAIN_GRID_STRIDE;
+    const p0 = data[o + xa];
+    const p1 = data[o + xb];
+    const p2 = data[o + xc];
+    const p3 = data[o + xd];
+    return (
+      p1 +
+      0.5 * tx * (p2 - p0 + tx * (2 * p0 - 5 * p1 + 4 * p2 - p3 + tx * (3 * (p1 - p2) + p3 - p0)))
+    );
+  };
+  const q0 = rowAt(iz - 1);
+  const q1 = rowAt(iz);
+  const q2 = rowAt(iz + 1);
+  const q3 = rowAt(iz + 2);
+  const h =
+    q1 +
+    0.5 * tz * (q2 - q0 + tz * (2 * q0 - 5 * q1 + 4 * q2 - q3 + tz * (3 * (q1 - q2) + q3 - q0)));
+  return minElev + h * decodeScale;
 }
 
 /**
