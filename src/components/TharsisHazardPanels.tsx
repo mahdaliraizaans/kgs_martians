@@ -143,18 +143,50 @@ export const OlympusClimbPanel: React.FC<{
   className?: string;
 }> = ({ slopePct, frostMode, className = '' }) => {
   const pose = useLivePose(500);
+  // Collapsed by default so the panel never covers the 3D terrain; click the strip to expand.
+  const [open, setOpen] = useState(false);
   if (!isNearOlympus(pose.lat, pose.lng)) return null;
   const t = computeOlympusClimbTelemetry(pose.lat, pose.lng, slopePct, frostMode);
   const km = (m: number) => `${(m / 1000).toFixed(2)} km`;
 
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="Expand Olympus Mons climb telemetry"
+        className={`pointer-events-auto flex w-full items-center gap-2 rounded-lg border border-orange-500/40 bg-slate-950/70 px-2.5 py-1 text-left font-mono text-[11px] ${className}`}
+      >
+        <Mountain className="h-3.5 w-3.5 shrink-0 text-orange-300" />
+        <span className="truncate">
+          <span className="text-orange-300">OLYMPUS</span>{' '}
+          <span className={ALTITUDE_STYLE[t.altitudeLevel]}>{t.elevationM.toLocaleString()} m</span>
+          <span className="text-slate-400"> · +{km(t.climbedM)} · </span>
+          <span className={ALTITUDE_STYLE[t.altitudeLevel]}>{t.pressurePa} Pa</span>
+          <span className="text-slate-400"> · slope </span>
+          <span className={SLOPE_STYLE[t.slopeWarning]}>
+            {t.slopePct.toFixed(0)}%{t.slopeWarning === 'NONE' ? '' : ` ${t.slopeWarning}`}
+          </span>
+          {t.warnings.length > 0 && <span className="text-orange-300"> · {t.warnings.length} warn</span>}
+        </span>
+        <span className="ml-auto shrink-0 text-slate-400">▾</span>
+      </button>
+    );
+  }
+
   return (
     <div
-      className={`pointer-events-auto rounded-lg border border-orange-500/40 bg-slate-950/85 p-2.5 font-mono text-[11px] leading-snug ${className}`}
+      className={`pointer-events-auto max-h-[46vh] overflow-y-auto rounded-lg border border-orange-500/40 bg-slate-950/85 p-2.5 font-mono text-[11px] leading-snug ${className}`}
     >
-      <div className="mb-1.5 flex items-center gap-1.5 border-b border-orange-500/30 pb-1 text-orange-300">
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        className="mb-1.5 flex w-full items-center gap-1.5 border-b border-orange-500/30 pb-1 text-left text-orange-300"
+      >
         <Mountain className="h-3.5 w-3.5" />
         <span className="font-bold uppercase tracking-wide">Olympus Mons climb telemetry</span>
-      </div>
+        <span className="ml-auto text-slate-400">▴</span>
+      </button>
       <div className="mb-1 text-[10px] uppercase text-slate-400">Baseline: red marker, {t.baselineElevationM.toLocaleString()} m</div>
       <div className="space-y-0.5">
         <Row label="Zone" value={t.zoneLabel} />
