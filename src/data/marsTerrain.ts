@@ -515,18 +515,70 @@ function valueNoise2(x: number, z: number): number {
 }
 
 /**
- * Sub-pixel regolith roughness layered on the real DEM (MOLA is ~463 m/px, so anything
- * finer than that is texture, not data). Kept to a few decimetres so slopes stay real.
+ * Self-similar fractal relief layered on the real DEM. MOLA is ~463 m/px, so structure below
+ * that scale is NOT NASA data; it is statistically plausible texture whose amplitude follows
+ * the real local ruggedness (`rough`, derived from the real slope), octave by octave:
+ * ~0.5% of wavelength, i.e. ~3% slope per octave on rough terrain, much less on plains.
  */
-function regolithDetail(x: number, z: number, biomeId: MarsBiomeId, frostMode: SeasonalFrostMode): number {
-  const n =
-    (valueNoise2(x / 80, z / 80) - 0.5) * 0.7 +
-    (valueNoise2(x / 30 + 11.3, z / 30 - 4.1) - 0.5) * 0.24 +
-    (valueNoise2(x / 12 - 7.7, z / 12 + 19.9) - 0.5) * 0.08;
+const DETAIL_TOP_WAVELENGTH = 2000;
+const DETAIL_OCTAVES = 8; // 2000 m down to ~16 m
+const DETAIL_AMP_PER_WAVELENGTH = 0.0048;
+
+export function terrainRoughnessFromSlope(slopeRiseOverRun: number): number {
+  return Math.max(0.3, Math.min(1.8, 0.3 + slopeRiseOverRun * 14));
+}
+
+/** Fractal relief in meters. `minWavelength` drops octaves a coarse mesh cannot represent. */
+export function fractalTerrainDetail(
+  x: number,
+  z: number,
+  rough: number,
+  minWavelength: number
+): number {
+  let sum = 0;
+  let lambda = DETAIL_TOP_WAVELENGTH;
+  for (let i = 0; i < DETAIL_OCTAVES; i++, lambda *= 0.5) {
+    if (lambda < minWavelength) break;
+    const c = Math.cos(0.61 * i + 0.4);
+    const s = Math.sin(0.61 * i + 0.4);
+    const u = (x * c - z * s) / lambda + i * 17.31;
+    const v = (x * s + z * c) / lambda - i * 9.17;
+    sum += (valueNoise2(u, v) - 0.5) * 2 * DETAIL_AMP_PER_WAVELENGTH * lambda;
+  }
+  return sum * rough;
+}
+
+/**
+ * Real MOLA height (no fractal detail) in the active terrain frame, in the same vertical
+ * datum as getMarsElevation. Used by the distant-horizon meshes.
+ */
+export function getRealBaseElevation(x: number, z: number): number {
+  const { lat, lng } = localToLatLng(x, z);
+  const mola = sampleMolaMeters(lat, lng);
+  const a = terrainAnchor;
+  if (!a) return mola + JEZERO_DATUM_METERS;
+  if (Number.isNaN(a.baseMola)) a.baseMola = sampleMolaMeters(a.lat, a.lng);
+  return 16 + (mola - a.baseMola);
+}
+
+/** Full terrain height as seen from a mesh with the given cell size (0 = finest). */
+export function getMarsElevationLod(
+  x: number,
+  z: number,
+  rough: number,
+  cellSize: number,
+  biomeId: MarsBiomeId,
+  frostMode: SeasonalFrostMode
+): number {
   const polar = biomeId === 'PLANUM_BOREUM' || biomeId === 'PLANUM_AUSTRALE';
   const smooth = polar && frostMode === 'DEPOSITION' ? 0.5 : 1;
-  return n * smooth;
+  return (
+    getRealBaseElevation(x, z) +
+    fractalTerrainDetail(x, z, rough, Math.max(12, cellSize * 4)) * smooth
+  );
 }
+
+const ROUGH_PROBE_M = 120;
 
 function getRealTerrainElevation(
   x: number,
@@ -534,18 +586,16 @@ function getRealTerrainElevation(
   biomeId: MarsBiomeId,
   frostMode: SeasonalFrostMode
 ): number {
-  const { lat, lng } = localToLatLng(x, z);
-  const mola = sampleMolaMeters(lat, lng);
-  const a = terrainAnchor;
-  let h: number;
-  if (!a) {
-    h = mola + JEZERO_DATUM_METERS;
-  } else {
-    if (Number.isNaN(a.baseMola)) a.baseMola = sampleMolaMeters(a.lat, a.lng);
-    // Telemetry datum for global sites is (environment elevation - 16), so the anchor sits at 16.
-    h = 16 + (mola - a.baseMola);
-  }
-  return h + regolithDetail(x, z, biomeId, frostMode);
+  const base = getRealBaseElevation(x, z);
+  const hE = getRealBaseElevation(x + ROUGH_PROBE_M, z);
+  const hW = getRealBaseElevation(x - ROUGH_PROBE_M, z);
+  const hN = getRealBaseElevation(x, z + ROUGH_PROBE_M);
+  const hS = getRealBaseElevation(x, z - ROUGH_PROBE_M);
+  const slope = Math.hypot(hE - hW, hN - hS) / (2 * ROUGH_PROBE_M);
+  const rough = terrainRoughnessFromSlope(slope);
+  const polar = biomeId === 'PLANUM_BOREUM' || biomeId === 'PLANUM_AUSTRALE';
+  const smooth = polar && frostMode === 'DEPOSITION' ? 0.5 : 1;
+  return base + fractalTerrainDetail(x, z, rough, 12) * smooth;
 }
 
 /**

@@ -21,6 +21,7 @@ import {
 import { marsDistanceKm, slerpLatLng } from '../data/marsCartography';
 import { EquipmentControlState, ActiveEnvironmentState, MarsBiomeId, SeasonalFrostMode } from '../types/telemetry';
 import { MarsTerrainManager } from './marsTerrain';
+import { MarsFarTerrain } from './marsFarTerrain';
 import { MarsGlobalGlobe, GLOBE_RADIUS } from './marsGlobalGlobe';
 import { vehicleSim, type LiveVehiclePose } from '../utils/vehicleController';
 import { dualSense } from '../utils/dualsenseController';
@@ -422,7 +423,7 @@ export const Mars3DViewport: React.FC<Mars3DViewportProps> = React.memo(({
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
 
-    const camera = new THREE.PerspectiveCamera(68, width / height, 0.25, 16000);
+    const camera = new THREE.PerspectiveCamera(68, width / height, 0.25, 250000);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: !isSoftwareGl,
@@ -504,6 +505,9 @@ export const Mars3DViewport: React.FC<Mars3DViewportProps> = React.memo(({
       initialFrostMode: initFrostMode,
     });
     scene.add(terrainManager.group);
+    // Real-MOLA horizon rings out to ~100 km so mountains/crater rims show where they are on the map
+    const farTerrain = new MarsFarTerrain(skyUniforms.uSunDir);
+    scene.add(farTerrain.group);
 
     // --- IDLE-DEFERRED NON-CRITICAL 3D ASSETS (ROCK SCATTER, GEOLOGY FEATURES, PARTICLES) ---
     let isDisposed = false;
@@ -1935,6 +1939,7 @@ export const Mars3DViewport: React.FC<Mars3DViewportProps> = React.memo(({
         currentFrostMode = activeFrost;
         currentTerrainFrameId = getTerrainFrameId();
         terrainManager.setEnvironment(activeBiome, activeFrost, currentTerrainFrameId);
+        farTerrain.setEnvironment(activeBiome, activeFrost);
         syncRocksForBiome(activeBiome, activeFrost);
         terrainManager.update(camera, true);
         lastBeaconAstroPos = { x: 999999, z: 999999 };
@@ -1948,7 +1953,8 @@ export const Mars3DViewport: React.FC<Mars3DViewportProps> = React.memo(({
 
       // Update spectral material, custom sky dome gradient, CME skyglow & dust/frost-adjusted FogExp2
       const regionalFogDensity = activeEnv?.fogDensity ?? 0.00078;
-      const baseFogFactor = Math.max(regionalFogDensity, 0.00035) + Math.max(0, tau - 0.45) * 0.0038;
+      // Thin base haze (visibility ~10 km) so real distant terrain reads; dust storms still thicken it.
+      const baseFogFactor = Math.max(regionalFogDensity * 0.3, 0.00014) + Math.max(0, tau - 0.45) * 0.0038;
       const fogFactor = THREE.MathUtils.lerp(baseFogFactor, 0.00004, orbitalBlend);
       const isJezeroOpt = activeBiome === 'JEZERO_CRATER';
       const regionalSkyColor = isJezeroOpt ? '#b86e5c' : (activeEnv?.skyColorHex ?? '#b86e5c');
@@ -2097,6 +2103,15 @@ export const Mars3DViewport: React.FC<Mars3DViewportProps> = React.memo(({
         Math.abs(targetAstroY) <= 4_000;
 
       terrainManager.group.visible = showLocalSurface;
+      if (scene.fog instanceof THREE.FogExp2) {
+        farTerrain.update(
+          camera.position.x,
+          camera.position.z,
+          scene.fog.color,
+          scene.fog.density,
+          showLocalSurface && sMode === 'optical'
+        );
+      }
       skyDome.visible = orbitalBlend < 0.72;
       habitatGroup.visible = insideJezeroView;
       hotspotGroup.visible = insideJezeroView;
@@ -2586,6 +2601,7 @@ export const Mars3DViewport: React.FC<Mars3DViewportProps> = React.memo(({
       syncCustomWaypoints3D([]);
       syncLandformBeacons3D([], 0, 0);
       terrainManager.disposeAll();
+      farTerrain.dispose();
       marsGlobe.dispose();
 
       const disposeGroupMeshes = (root: THREE.Object3D) => {
