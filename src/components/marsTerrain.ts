@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   getMarsElevation,
+  getTerrainFrameId,
   sampleTerrainGridElevation,
   WORLD_HALF_EXTENT,
 } from '../data/marsTerrain';
@@ -727,6 +728,7 @@ export class MarsTerrainManager {
   private spectralMode: TerrainSpectralMode = 'optical';
   private biomeId: MarsBiomeId = 'JEZERO_CRATER';
   private frostMode: SeasonalFrostMode = 'SUBLIMATION';
+  private terrainFrameId = getTerrainFrameId();
   private totalCreated = 0;
   private totalDisposed = 0;
   private readonly raycastTargetBuffer: THREE.Mesh[] = [];
@@ -780,10 +782,21 @@ export class MarsTerrainManager {
     prevMaps.strataNormalTex.dispose();
   }
 
-  public setEnvironment(biomeId: MarsBiomeId, frostMode: SeasonalFrostMode): boolean {
-    if (this.biomeId === biomeId && this.frostMode === frostMode) return false;
+  public setEnvironment(
+    biomeId: MarsBiomeId,
+    frostMode: SeasonalFrostMode,
+    terrainFrameId = 0
+  ): boolean {
+    if (
+      this.biomeId === biomeId &&
+      this.frostMode === frostMode &&
+      this.terrainFrameId === terrainFrameId
+    ) {
+      return false;
+    }
     this.biomeId = biomeId;
     this.frostMode = frostMode;
+    this.terrainFrameId = terrainFrameId;
     this.sharedUniforms.uBiomeStyle.value = getBiomeShaderStyleIndex(biomeId);
     const allChunks = Array.from(this.chunks.values());
     for (const chunk of allChunks) {

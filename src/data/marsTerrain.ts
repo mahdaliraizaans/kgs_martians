@@ -9,6 +9,7 @@ import {
   SeasonalFrostMode,
   TopographicTelemetry,
 } from '../types/telemetry';
+import { getMarsDemVersion, isMarsDemReady, sampleMolaMeters } from './marsDem';
 import {
   MARS_PLANETARY_LANDMARKS,
   LANDFORM_CATEGORY_COLORS,
@@ -433,15 +434,139 @@ export const RADIATION_HOTSPOTS: RadiationHotspot[] = [
   },
 ];
 
+// --- REAL NASA MOLA TERRAIN FRAME -------------------------------------------------------------
+// Local (x east, z north) meters map to Mars lat/lng so every system samples the same real DEM.
+// Without an anchor the frame is the Jezero frame (hab at 0,0). During a global override the
+// viewport/vehicle anchors the frame at the rover's position so the 3D terrain is the actual
+// MOLA surface around that exact latitude/longitude.
+interface TerrainAnchor {
+  id: number;
+  lat: number;
+  lng: number;
+  x0: number;
+  z0: number;
+  baseMola: number; // MOLA elevation at the anchor (NaN until sampled)
+}
+
+let terrainAnchor: TerrainAnchor | null = null;
+let terrainAnchorSeq = 0;
+const ANCHOR_REBASE_METERS = 1500;
+const JEZERO_DATUM_METERS = 2552; // hab/telemetry datum: telemetry elevation = h - 2552 = real MOLA
+
+function localToLatLng(x: number, z: number): { lat: number; lng: number } {
+  const a = terrainAnchor;
+  if (!a) return jezeroLocalToLatLng(x, z);
+  const lat = a.lat + (z - a.z0) / METERS_PER_DEG_LAT_CONST;
+  const cosLat = Math.max(0.05, Math.cos((a.lat * Math.PI) / 180));
+  const lng = a.lng + (x - a.x0) / (METERS_PER_DEG_LAT_CONST * cosLat);
+  return { lat, lng };
+}
+
+/** Stable id of the active terrain frame; changes whenever the frame is re-anchored. */
+export function getTerrainFrameId(): number {
+  return (terrainAnchor ? terrainAnchor.id : 0) * 1000 + (getMarsDemVersion() % 1000);
+}
+
 /**
- * Continuous procedural Mars terrain heightfield across the 3.6km x 3.6km local viewport,
- * dynamically adapting relief geometry to the active Martian biome.
+ * Keeps the terrain frame in sync with the rover pose. Returns true when the frame changed
+ * (callers should rebuild any cached terrain).
+ */
+export function syncTerrainAnchor(
+  isGlobalOverride: boolean,
+  lat: number,
+  lng: number,
+  x: number,
+  z: number
+): boolean {
+  if (!isGlobalOverride) {
+    if (!terrainAnchor) return false;
+    terrainAnchor = null;
+    return true;
+  }
+  if (terrainAnchor) {
+    const exp = localToLatLng(x, z);
+    const dLat = (lat - exp.lat) * METERS_PER_DEG_LAT_CONST;
+    let dLng = lng - exp.lng;
+    dLng = ((((dLng + 180) % 360) + 360) % 360) - 180;
+    const dEast = dLng * METERS_PER_DEG_LAT_CONST * Math.max(0.05, Math.cos((lat * Math.PI) / 180));
+    if (Math.hypot(dLat, dEast) < ANCHOR_REBASE_METERS) return false;
+  }
+  terrainAnchor = { id: ++terrainAnchorSeq, lat, lng, x0: x, z0: z, baseMola: Number.NaN };
+  return true;
+}
+
+function hash2(ix: number, iz: number): number {
+  const s = Math.sin(ix * 127.1 + iz * 311.7) * 43758.5453123;
+  return s - Math.floor(s);
+}
+
+function valueNoise2(x: number, z: number): number {
+  const ix = Math.floor(x);
+  const iz = Math.floor(z);
+  const fx = x - ix;
+  const fz = z - iz;
+  const u = fx * fx * (3 - 2 * fx);
+  const v = fz * fz * (3 - 2 * fz);
+  const a = hash2(ix, iz);
+  const b = hash2(ix + 1, iz);
+  const c = hash2(ix, iz + 1);
+  const d = hash2(ix + 1, iz + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+/**
+ * Sub-pixel regolith roughness layered on the real DEM (MOLA is ~463 m/px, so anything
+ * finer than that is texture, not data). Kept to a few decimetres so slopes stay real.
+ */
+function regolithDetail(x: number, z: number, biomeId: MarsBiomeId, frostMode: SeasonalFrostMode): number {
+  const n =
+    (valueNoise2(x / 80, z / 80) - 0.5) * 0.7 +
+    (valueNoise2(x / 30 + 11.3, z / 30 - 4.1) - 0.5) * 0.24 +
+    (valueNoise2(x / 12 - 7.7, z / 12 + 19.9) - 0.5) * 0.08;
+  const polar = biomeId === 'PLANUM_BOREUM' || biomeId === 'PLANUM_AUSTRALE';
+  const smooth = polar && frostMode === 'DEPOSITION' ? 0.5 : 1;
+  return n * smooth;
+}
+
+function getRealTerrainElevation(
+  x: number,
+  z: number,
+  biomeId: MarsBiomeId,
+  frostMode: SeasonalFrostMode
+): number {
+  const { lat, lng } = localToLatLng(x, z);
+  const mola = sampleMolaMeters(lat, lng);
+  const a = terrainAnchor;
+  let h: number;
+  if (!a) {
+    h = mola + JEZERO_DATUM_METERS;
+  } else {
+    if (Number.isNaN(a.baseMola)) a.baseMola = sampleMolaMeters(a.lat, a.lng);
+    // Telemetry datum for global sites is (environment elevation - 16), so the anchor sits at 16.
+    h = 16 + (mola - a.baseMola);
+  }
+  return h + regolithDetail(x, z, biomeId, frostMode);
+}
+
+/**
+ * Mars terrain heightfield in the local frame. Real NASA MOLA elevation (see marsDem.ts) once
+ * loaded; the legacy procedural model is only a fallback while the DEM is unavailable.
  */
 export function getMarsElevation(
   x: number,
   z: number,
   biomeId: MarsBiomeId = 'JEZERO_CRATER',
   frostMode: SeasonalFrostMode = 'SUBLIMATION'
+): number {
+  if (isMarsDemReady()) return getRealTerrainElevation(x, z, biomeId, frostMode);
+  return getProceduralMarsElevation(x, z, biomeId, frostMode);
+}
+
+function getProceduralMarsElevation(
+  x: number,
+  z: number,
+  biomeId: MarsBiomeId,
+  frostMode: SeasonalFrostMode
 ): number {
   if (biomeId === 'OLYMPUS_MONS' || biomeId === 'THARSIS_BULGE') {
     const isOlympus = biomeId === 'OLYMPUS_MONS';
@@ -630,11 +755,24 @@ interface CompactElevationGrid {
 
 const elevationGridCache = new Map<string, CompactElevationGrid>();
 
+/** Center of the precomputed grid in local meters (the active terrain anchor, else Jezero origin). */
+function gridCenter(): { cx: number; cz: number } {
+  return terrainAnchor ? { cx: terrainAnchor.x0, cz: terrainAnchor.z0 } : { cx: 0, cz: 0 };
+}
+
+function gridKey(biomeId: MarsBiomeId, frostMode: SeasonalFrostMode): string {
+  // Real DEM heights are independent of biome; only polar frost smoothing varies the detail layer.
+  return isMarsDemReady()
+    ? `dem:${getTerrainFrameId()}:${biomeId === 'PLANUM_BOREUM' || biomeId === 'PLANUM_AUSTRALE' ? frostMode : ''}`
+    : `${biomeId}:${frostMode}`;
+}
+
 function getOrBuildElevationGrid(
   biomeId: MarsBiomeId,
   frostMode: SeasonalFrostMode
 ): CompactElevationGrid {
-  const key = `${biomeId}:${frostMode}`;
+  const key = gridKey(biomeId, frostMode);
+  const { cx, cz } = gridCenter();
   const existing = elevationGridCache.get(key);
   if (existing) return existing;
 
@@ -650,10 +788,10 @@ function getOrBuildElevationGrid(
   let maxElev = -Infinity;
 
   for (let iz = 0; iz <= TERRAIN_GRID_RES; iz++) {
-    const wz = -WORLD_HALF_EXTENT + iz * TERRAIN_GRID_CELL;
+    const wz = cz - WORLD_HALF_EXTENT + iz * TERRAIN_GRID_CELL;
     const rowOffset = iz * TERRAIN_GRID_STRIDE;
     for (let ix = 0; ix <= TERRAIN_GRID_RES; ix++) {
-      const wx = -WORLD_HALF_EXTENT + ix * TERRAIN_GRID_CELL;
+      const wx = cx - WORLD_HALF_EXTENT + ix * TERRAIN_GRID_CELL;
       const elev = getMarsElevation(wx, wz, biomeId, frostMode);
       scratch[rowOffset + ix] = elev;
       if (elev < minElev) minElev = elev;
@@ -687,12 +825,15 @@ export function sampleTerrainGridElevation(
   biomeId: MarsBiomeId = 'JEZERO_CRATER',
   frostMode: SeasonalFrostMode = 'SUBLIMATION'
 ): number {
-  if (Math.abs(x) >= WORLD_HALF_EXTENT || Math.abs(z) >= WORLD_HALF_EXTENT) {
+  const { cx, cz } = gridCenter();
+  const lx = x - cx;
+  const lz = z - cz;
+  if (Math.abs(lx) >= WORLD_HALF_EXTENT || Math.abs(lz) >= WORLD_HALF_EXTENT) {
     return getMarsElevation(x, z, biomeId, frostMode);
   }
   const { data, minElev, decodeScale } = getOrBuildElevationGrid(biomeId, frostMode);
-  const fx = Math.max(0, Math.min(TERRAIN_GRID_RES - 1e-4, (x + WORLD_HALF_EXTENT) * INV_GRID_CELL));
-  const fz = Math.max(0, Math.min(TERRAIN_GRID_RES - 1e-4, (z + WORLD_HALF_EXTENT) * INV_GRID_CELL));
+  const fx = Math.max(0, Math.min(TERRAIN_GRID_RES - 1e-4, (lx + WORLD_HALF_EXTENT) * INV_GRID_CELL));
+  const fz = Math.max(0, Math.min(TERRAIN_GRID_RES - 1e-4, (lz + WORLD_HALF_EXTENT) * INV_GRID_CELL));
 
   const ix = fx | 0;
   const iz = fz | 0;

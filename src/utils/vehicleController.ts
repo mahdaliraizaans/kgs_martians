@@ -14,6 +14,7 @@ import {
   marsStepGreatCircle,
   normalizeSignedLng180,
   slerpLatLng,
+  syncTerrainAnchor,
 } from '../data/marsTerrain';
 import {
   checkOlympusCliffBoundary,
@@ -657,6 +658,8 @@ class VehicleSimulationEngine {
     pose.isGlobalOverride = c.isGlobalOverride;
     pose.isPlanetaryWarp = c.isPlanetaryWarp;
     pose.teleportEpoch = this.teleportEpoch;
+    // Keep the real-DEM terrain frame centered on the rover's actual lat/lng.
+    syncTerrainAnchor(c.isGlobalOverride, c.lat, c.lng, c.x, c.y);
   }
 
   private stepFixed(dt: number, nowMs: number, input: DriveInputState): boolean {

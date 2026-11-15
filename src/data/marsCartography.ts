@@ -4,6 +4,8 @@
  * and 0..360°E Areocentric East convention) on a spherical Mars datum (R = 3,389.5 km).
  */
 
+import { sampleMolaMeters } from './marsDem';
+
 export type LandformCategory =
   | 'volcano'
   | 'canyon'
@@ -623,6 +625,11 @@ export function evalPlanetaryTopography(lat: number, lng: number): PlanetaryTopo
       regionId = 'PLANUM_AUSTRALE';
     }
   }
+
+  // Real NASA MGS MOLA elevation replaces the synthetic relief model above (the model is
+  // only kept for region masks/albedo and as a fallback until the DEM has loaded).
+  const molaMeters = sampleMolaMeters(lat, lng);
+  if (!Number.isNaN(molaMeters)) elevMeters = molaMeters;
 
   const clampedElev = Math.max(-10200, Math.min(24800, elevMeters));
   // Normalize over Martian MOLA global range (-9,500 m .. +22,000 m) for tile hypsometry

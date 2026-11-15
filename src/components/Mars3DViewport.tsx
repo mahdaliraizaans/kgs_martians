@@ -5,6 +5,7 @@ import { Camera, Eye, Compass, Video, Orbit, Globe, ChevronDown, ChevronUp, Chev
 import { playChirpSound, playAckTone } from '../utils/audioAlerts';
 import {
   getMarsElevation,
+  getTerrainFrameId,
   sampleTerrainGridElevation,
   sampleTerrainGridNormalAndSlope,
   MARS_WAYPOINTS,
@@ -1765,6 +1766,7 @@ export const Mars3DViewport: React.FC<Mars3DViewportProps> = React.memo(({
     let currentMode = stateRef.current.spectralMode;
     let currentBiomeId: MarsBiomeId = initBiomeId;
     let currentFrostMode: SeasonalFrostMode = initFrostMode;
+    let currentTerrainFrameId = getTerrainFrameId();
     let lastCamPreset: CameraPreset = stateRef.current.activeCamPreset;
     let orbitalPresetBlend = lastCamPreset === 'orbital' ? 1 : 0;
     let wingAngle = 0;
@@ -1924,12 +1926,15 @@ export const Mars3DViewport: React.FC<Mars3DViewportProps> = React.memo(({
 
       // Defer destination biome mesh swap to orbital peak (u >= 0.45) so departure relief never snaps
       if (
-        (activeBiome !== currentBiomeId || activeFrost !== currentFrostMode) &&
+        (activeBiome !== currentBiomeId ||
+          activeFrost !== currentFrostMode ||
+          getTerrainFrameId() !== currentTerrainFrameId) &&
         (!isOrbitalArc || easedTransU >= 0.45)
       ) {
         currentBiomeId = activeBiome;
         currentFrostMode = activeFrost;
-        terrainManager.setEnvironment(activeBiome, activeFrost);
+        currentTerrainFrameId = getTerrainFrameId();
+        terrainManager.setEnvironment(activeBiome, activeFrost, currentTerrainFrameId);
         syncRocksForBiome(activeBiome, activeFrost);
         terrainManager.update(camera, true);
         lastBeaconAstroPos = { x: 999999, z: 999999 };
