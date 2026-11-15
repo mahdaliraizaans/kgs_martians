@@ -17,6 +17,7 @@ import {
   evalPlanetaryTopography,
   normalizeSignedLng180,
 } from '../data/marsCartography';
+import { getHazardOverlayEnabled } from './hazardOverlayStore';
 
 export type AtlasSpectralMode = 'optical' | 'thermal' | 'topographic';
 
@@ -540,6 +541,7 @@ export function renderLocalHiRiseDem(
   const cosR = Math.cos(rotRad);
   const sinR = Math.sin(rotRad);
   const gradStep = Math.max(6, sampleStep / Math.max(0.05, pxPerMeter));
+  const hazardOverlay = getHazardOverlayEnabled() && mode !== 'topographic';
 
   for (let py = 0; py < rh; py++) {
     const sy = centerY - (py + 0.5) * sampleStep;
@@ -613,6 +615,19 @@ export function renderLocalHiRiseDem(
         r = (158 + dune) * (1 - rockBlend) + 84 * rockBlend;
         g = (76 + dune * 0.6) * (1 - rockBlend) + 52 * rockBlend;
         b = (48 + dune * 0.4) * (1 - rockBlend) + 44 * rockBlend;
+      }
+
+      // Ravine wall / trough hazard overlay on the sector minimap (same thresholds as the 3D terrain)
+      if (hazardOverlay && slope >= 0.25) {
+        const crit = Math.min(1, (slope - 0.25) / 0.3);
+        const stripe = Math.floor((wx + wz) * 0.1) % 2 === 0 ? 1 : 0.78;
+        const hr = (crit > 0.5 ? 255 : 255) * stripe;
+        const hg = (crit > 0.5 ? 40 : 160) * stripe;
+        const hb = (crit > 0.5 ? 30 : 36) * stripe;
+        const k = 0.35 + crit * 0.35;
+        r = r * (1 - k) + hr * k;
+        g = g * (1 - k) + hg * k;
+        b = b * (1 - k) + hb * k;
       }
 
       const idx = (py * rw + px) * 4;

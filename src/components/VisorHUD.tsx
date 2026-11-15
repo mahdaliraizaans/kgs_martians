@@ -48,6 +48,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { playChirpSound, playAckTone } from '../utils/audioAlerts';
+import { OlympusClimbPanel, TerrainHazardBanner } from './TharsisHazardPanels';
 import {
   NOTIFICATION_AUTO_DISMISS_MS,
   getHazardAlertDismissMs,
@@ -739,6 +740,18 @@ export const VisorHUD: React.FC<VisorHUDProps> = ({
             )}
           </div>
         )}
+        {/* RAVINE / TROUGH HAZARD SCAN + OLYMPUS MONS CLIMB TELEMETRY */}
+        <div className="w-full mt-2 space-y-2">
+          <TerrainHazardBanner
+            biomeId={state.activeEnvironment.biomeId}
+            frostMode={state.activeEnvironment.seasonalCo2FrostMode}
+          />
+          <OlympusClimbPanel
+            biomeId={state.activeEnvironment.biomeId}
+            slopePct={topography.slopePercentage}
+            frostMode={state.activeEnvironment.seasonalCo2FrostMode}
+          />
+        </div>
         {/* DESTINATION REACHED ARRIVAL BANNER */}
         {destinationReached && !destinationReached.dismissed && (
           <div

@@ -716,9 +716,11 @@ export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
     visualCharacteristics:
       'A colossal wall of basalt rising roughly 7–8 km above the plains in only a few tens of kilometres, the basal escarpment of the shield, filling the horizon toward the southeast.',
     terrainConstraints: [
-      'Sheer basal cliff scarp (up to 8 km vertical drop) ringing outer perimeter',
-      'Gentle 4°–6° lava-flow flanks above the basal escarpment',
-      'Nested multi-ringed summit caldera walls with fractured basalt ledges',
+      'RED-MARKER BASELINE (~-1,700 m): climbing telemetry is measured from here to the 21,229 m summit',
+      'Sheer basal cliff scarp, 2-8 km vertical (tallest on the NW/N side), ringing the 285-315 km perimeter',
+      'Gentle 2°–6° lava-flow flanks above the basal escarpment; aureole debris lobes to the NW',
+      'Summit caldera complex: six nested collapse craters, 9-32 km wide and up to 3.2 km deep',
+      'Summit air pressure ~100 Pa (about 16% of the Mars datum): extreme-altitude suit load',
     ],
     weatherProfile: 'Ultra-thin summit atmosphere (~72 Pa); afternoon orographic water-ice clouds.',
     difficulty: 'EXTREME',
@@ -742,8 +744,9 @@ export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
     visualCharacteristics:
       'Standing on the summit the shield falls away so gently (a few degrees) that it reads as a vast plateau with the caldera walls as the only relief.',
     terrainConstraints: [
-      'Nested multi-ringed summit caldera walls with fractured basalt ledges',
-      'Gentle 4°–6° lava-flow flanks',
+      'Summit elevation 21,229 m (MOLA); caldera rim ~21,000 m, crater floors down to ~18,000 m',
+      'Six nested collapse craters, 9-32 km across, 1.2-3.2 km deep, with fractured basalt ledges',
+      'Gentle 2°–6° lava-flow flanks; near-vacuum air (~100 Pa)',
     ],
     weatherProfile: 'Ultra-thin summit atmosphere (~72 Pa); afternoon orographic water-ice clouds.',
     difficulty: 'EXTREME',

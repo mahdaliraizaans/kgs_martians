@@ -27,6 +27,12 @@ import {
 } from '../data/marsTerrain';
 import { slerpLatLng } from '../data/marsCartography';
 import {
+  THARSIS_FEATURES,
+  FEATURE_KIND_STYLE,
+  OLYMPUS_CALDERA_CRATERS,
+} from '../data/tharsisFeatures';
+import { OlympusClimbPanel, TerrainHazardBanner } from './TharsisHazardPanels';
+import {
   CustomWaypoint,
   JEZERO_ORIGIN,
   jezeroMetersToLatLng,
@@ -189,6 +195,7 @@ export const MarsWalkHud: React.FC<MarsWalkHudProps> = ({
   const regionalZoneLayerRef = useRef<L.LayerGroup | null>(null);
   const plannedRouteLayerRef = useRef<L.LayerGroup | null>(null);
   const landformLayerRef = useRef<L.LayerGroup | null>(null);
+  const tharsisLayerRef = useRef<L.LayerGroup | null>(null);
   const compassNeedleRef = useRef<HTMLDivElement>(null);
   const headingOutRef = useRef<HTMLOutputElement>(null);
   const paceOutRef = useRef<HTMLOutputElement>(null);
@@ -200,6 +207,7 @@ export const MarsWalkHud: React.FC<MarsWalkHudProps> = ({
   const [showJezeroOverlay, setShowJezeroOverlay] = useState(true);
   const [showLandforms, setShowLandforms] = useState(true);
   const [showRegions, setShowRegions] = useState(true);
+  const [showTharsis, setShowTharsis] = useState(true);
   const [showAtlas, setShowAtlas] = useState(false);
   const [plannedRoute, setPlannedRoute] = useState<PlanetaryRoutePlan | null>(null);
   const [selectedLandmarkPopup, setSelectedLandmarkPopup] = useState<{
@@ -326,6 +334,7 @@ export const MarsWalkHud: React.FC<MarsWalkHudProps> = ({
     }).addTo(map);
     const plannedRouteGroup = L.layerGroup().addTo(map);
     const landformGroup = L.layerGroup().addTo(map);
+    const tharsisGroup = L.layerGroup().addTo(map);
     const wpGroup = L.layerGroup().addTo(map);
     const routeLine = L.polyline([], {
       color: '#ffb347',
@@ -379,6 +388,7 @@ export const MarsWalkHud: React.FC<MarsWalkHudProps> = ({
     breadcrumbLayerRef.current = breadcrumbLine;
     plannedRouteLayerRef.current = plannedRouteGroup;
     landformLayerRef.current = landformGroup;
+    tharsisLayerRef.current = tharsisGroup;
     wpLayerRef.current = wpGroup;
     routeLineRef.current = routeLine;
     blueTrailRef.current = blueTrail;
@@ -395,6 +405,7 @@ export const MarsWalkHud: React.FC<MarsWalkHudProps> = ({
       breadcrumbLayerRef.current = null;
       plannedRouteLayerRef.current = null;
       landformLayerRef.current = null;
+      tharsisLayerRef.current = null;
       wpLayerRef.current = null;
       routeLineRef.current = null;
       blueTrailRef.current = null;
@@ -904,6 +915,90 @@ export const MarsWalkHud: React.FC<MarsWalkHudProps> = ({
     state.navigation.targetWaypointId,
     onSetNavTarget,
   ]);
+
+  // Mons / Ravines / Troughs topographic layer (Tharsis rise, Valles Marineris, Olympus Mons structure)
+  useEffect(() => {
+    const group = tharsisLayerRef.current;
+    if (!group) return;
+    group.clearLayers();
+    if (!showTharsis) return;
+
+    THARSIS_FEATURES.forEach((f) => {
+      const style = FEATURE_KIND_STYLE[f.kind];
+      const facts = [
+        f.elevationMeters !== undefined ? `elev ${f.elevationMeters.toLocaleString()} m` : null,
+        f.reliefMeters !== undefined
+          ? `${f.kind === 'MONS' ? 'relief' : f.kind === 'ESCARPMENT' ? 'cliff' : 'depth'} ~${(f.reliefMeters / 1000).toFixed(1)} km`
+          : null,
+        f.widthKm !== undefined ? `~${f.widthKm} km wide` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      const tip = `<span style="color:${style.color};font-weight:700">${f.name}</span> · ${style.label}${
+        facts ? ` · ${facts}` : ''
+      }<br/><span style="opacity:.85">${f.description}</span>`;
+
+      if (f.points && f.points.length > 1) {
+        const isArea = f.kind === 'AUREOLE';
+        const line = isArea
+          ? L.polygon(f.points, {
+              color: style.color,
+              weight: 1.2,
+              dashArray: '4 4',
+              fillColor: style.color,
+              fillOpacity: 0.1,
+            })
+          : L.polyline(f.points, {
+              color: style.color,
+              weight: f.kind === 'ESCARPMENT' ? 3 : f.kind === 'RAVINE' ? 4 : 2.5,
+              opacity: 0.9,
+              dashArray: f.kind === 'TROUGH' ? '6 3' : f.kind === 'ESCARPMENT' ? '2 5' : undefined,
+            });
+        line.bindTooltip(tip, { sticky: true, className: 'hud-map-tip' });
+        line.addTo(group);
+        // wider translucent hazard corridor around ravines and troughs
+        if (f.kind === 'RAVINE' || f.kind === 'TROUGH') {
+          L.polyline(f.points, {
+            color: '#ef4444',
+            weight: f.kind === 'RAVINE' ? 14 : 9,
+            opacity: 0.14,
+            interactive: false,
+          }).addTo(group);
+        }
+      }
+
+      if (f.kind === 'MONS' || f.kind === 'CALDERA') {
+        const size = f.kind === 'MONS' ? 11 : 9;
+        L.marker([f.lat, f.lng], {
+          icon: L.divIcon({
+            className: '',
+            html: `<div style="width:0;height:0;border-left:${size / 2 + 1}px solid transparent;border-right:${size / 2 + 1}px solid transparent;border-bottom:${size + 2}px solid ${style.color};filter:drop-shadow(0 0 4px ${style.color});"></div>`,
+            iconSize: [size + 2, size + 2],
+            iconAnchor: [(size + 2) / 2, size + 2],
+          }),
+          zIndexOffset: 150,
+        })
+          .bindTooltip(tip, { direction: 'top', offset: [0, -8], className: 'hud-map-tip' })
+          .addTo(group);
+      }
+    });
+
+    // Six nested summit caldera craters (visible when zoomed in on Olympus Mons)
+    OLYMPUS_CALDERA_CRATERS.forEach((c) => {
+      L.circle([c.lat, c.lng], {
+        radius: (c.diameterKm * 1000) / 2,
+        color: '#f97316',
+        weight: 1.2,
+        fillColor: '#f97316',
+        fillOpacity: 0.08,
+      })
+        .bindTooltip(
+          `<span style="color:#f97316;font-weight:700">${c.name}</span> · ${c.diameterKm} km wide · ${(c.depthMeters / 1000).toFixed(1)} km deep`,
+          { sticky: true, className: 'hud-map-tip' }
+        )
+        .addTo(group);
+    });
+  }, [showTharsis]);
 
   // Sync Regional Zones & Hemispheric Dichotomy overlays on the global map
   useEffect(() => {
@@ -1792,6 +1887,14 @@ export const MarsWalkHud: React.FC<MarsWalkHudProps> = ({
               <label className="toggle">
                 <input
                   type="checkbox"
+                  checked={showTharsis}
+                  onChange={(e) => setShowTharsis(e.target.checked)}
+                />
+                <span>Mons, ravines &amp; troughs ({THARSIS_FEATURES.length})</span>
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
                   checked={state.equipment.enableAutopilotTravel}
                   onChange={(e) => {
                     playChirpSound();
@@ -1822,6 +1925,23 @@ export const MarsWalkHud: React.FC<MarsWalkHudProps> = ({
               <button type="button" onClick={handleCenterAstro}>
                 Center
               </button>
+            </div>
+          </section>
+
+          <section className="panel">
+            <h2>
+              Terrain hazards <small>RAVINES · TROUGHS</small>
+            </h2>
+            <div className="space-y-2">
+              <TerrainHazardBanner
+                biomeId={state.activeEnvironment.biomeId}
+                frostMode={state.activeEnvironment.seasonalCo2FrostMode}
+              />
+              <OlympusClimbPanel
+                biomeId={state.activeEnvironment.biomeId}
+                slopePct={state.topography.slopePercentage}
+                frostMode={state.activeEnvironment.seasonalCo2FrostMode}
+              />
             </div>
           </section>
 

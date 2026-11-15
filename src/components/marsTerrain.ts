@@ -6,6 +6,7 @@ import {
   WORLD_HALF_EXTENT,
 } from '../data/marsTerrain';
 import { MarsBiomeId, SeasonalFrostMode } from '../types/telemetry';
+import { getHazardOverlayEnabled } from '../utils/hazardOverlayStore';
 
 export type TerrainSpectralMode = 'optical' | 'thermal' | 'topographic';
 
@@ -725,6 +726,7 @@ export class MarsTerrainManager {
     uStrataNormal: { value: THREE.DataTexture };
     uSpectralMode: { value: number };
     uBiomeStyle: { value: number };
+    uHazardOverlay: { value: number };
   };
   private spectralMode: TerrainSpectralMode = 'optical';
   private biomeId: MarsBiomeId = 'JEZERO_CRATER';
@@ -763,6 +765,7 @@ export class MarsTerrainManager {
         value: this.spectralMode === 'thermal' ? 1.0 : this.spectralMode === 'topographic' ? 2.0 : 0.0,
       },
       uBiomeStyle: { value: getBiomeShaderStyleIndex(this.biomeId) },
+      uHazardOverlay: { value: getHazardOverlayEnabled() ? 1 : 0 },
     };
   }
 
@@ -852,9 +855,10 @@ export class MarsTerrainManager {
     });
 
     const uniforms = this.sharedUniforms;
-    material.customProgramCacheKey = () => 'mars-triplanar-pbr-v2';
+    material.customProgramCacheKey = () => 'mars-triplanar-pbr-v3-hazard';
 
     material.onBeforeCompile = (shader) => {
+      shader.uniforms.uHazardOverlay = uniforms.uHazardOverlay;
       shader.uniforms.uDetailAlbedo = uniforms.uDetailAlbedo;
       shader.uniforms.uDetailNormal = uniforms.uDetailNormal;
       shader.uniforms.uDetailRoughness = uniforms.uDetailRoughness;
@@ -893,6 +897,7 @@ uniform sampler2D uDetailRoughness;
 uniform sampler2D uStrataNormal;
 uniform float uSpectralMode;
 uniform float uBiomeStyle;
+uniform float uHazardOverlay;
 varying vec3 vMarsWorldPos;
 varying vec3 vMarsWorldNormal;
 varying vec3 vMarsViewAxisX;
@@ -949,6 +954,18 @@ if (uSpectralMode < 0.5) {
     float bedding = sin(vMarsWorldPos.y * 1.45 + strataSample * 2.6) * 0.5 + 0.5;
     vec3 strataColor = mix(vec3(0.28, 0.15, 0.11), vec3(0.74, 0.48, 0.33), bedding);
     diffuseColor.rgb = mix(diffuseColor.rgb, strataColor * microTex * 1.18, steepMask * 0.62);
+  }
+
+  // Ravine wall / trough edge hazard overlay: amber from ~25% grade, red hazard stripes from ~50%.
+  // marsSlope = 1 - cos(tilt): 25% -> 0.03, 50% -> 0.106, 80% -> 0.22
+  if (uHazardOverlay > 0.5) {
+    float warnMask = smoothstep(0.03, 0.065, marsSlope);
+    float critMask = smoothstep(0.106, 0.17, marsSlope);
+    float stripe = step(0.5, fract((vMarsWorldPos.x + vMarsWorldPos.z) * 0.1));
+    vec3 amber = vec3(1.0, 0.62, 0.12) * (0.78 + 0.22 * stripe);
+    vec3 red = vec3(1.0, 0.14, 0.1) * (0.6 + 0.4 * stripe);
+    diffuseColor.rgb = mix(diffuseColor.rgb, amber, warnMask * 0.38);
+    diffuseColor.rgb = mix(diffuseColor.rgb, red, critMask * 0.62);
   }
 }`
         )
@@ -1080,6 +1097,7 @@ if (uSpectralMode < 0.5) {
   }
 
   public update(camera: THREE.Camera, forceImmediate = false): void {
+    this.sharedUniforms.uHazardOverlay.value = getHazardOverlayEnabled() ? 1 : 0;
     camera.updateMatrixWorld();
     const camCx = Math.round(camera.position.x / TERRAIN_CHUNK_SIZE);
     const camCz = Math.round(camera.position.z / TERRAIN_CHUNK_SIZE);
