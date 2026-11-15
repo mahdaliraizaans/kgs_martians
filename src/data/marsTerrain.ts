@@ -462,6 +462,35 @@ function localToLatLng(x: number, z: number): { lat: number; lng: number } {
   return { lat, lng };
 }
 
+/**
+ * Compass heading (degrees clockwise from north) toward the largest real relief within 40 km of
+ * a point: the bearing with the greatest elevation angle to the horizon. Returns null when the
+ * DEM is not loaded or the surroundings are flat (< 1.5 deg). Used so teleports face the mountain.
+ */
+export function findScenicHeadingDeg(lat: number, lng: number): number | null {
+  if (!isMarsDemReady()) return null;
+  const e0 = sampleMolaMeters(lat, lng);
+  const mPerDegLng = METERS_PER_DEG_LAT_CONST * Math.max(0.05, Math.cos((lat * Math.PI) / 180));
+  let bestAngle = 0;
+  let bestHeading = 0;
+  for (let brg = 0; brg < 360; brg += 10) {
+    const rad = (brg * Math.PI) / 180;
+    for (let km = 2; km <= 40; km += 2) {
+      const d = km * 1000;
+      const e = sampleMolaMeters(
+        lat + (d * Math.cos(rad)) / METERS_PER_DEG_LAT_CONST,
+        lng + (d * Math.sin(rad)) / mPerDegLng
+      );
+      const angle = Math.atan2(e - e0, d);
+      if (angle > bestAngle) {
+        bestAngle = angle;
+        bestHeading = brg;
+      }
+    }
+  }
+  return bestAngle * (180 / Math.PI) >= 1.5 ? bestHeading : null;
+}
+
 /** Stable id of the active terrain frame; changes whenever the frame is re-anchored. */
 export function getTerrainFrameId(): number {
   return (terrainAnchor ? terrainAnchor.id : 0) * 1000 + (getMarsDemVersion() % 1000);

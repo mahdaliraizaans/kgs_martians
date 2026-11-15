@@ -7,7 +7,7 @@
 //  - meg004: global 4 px/deg grid (~14.8 km/px), downloaded whole (~2 MB)
 //  - meg128: 128 px/deg tiles (~463 m/px). The server supports HTTP Range, so only
 //    the pixel windows around each named site are fetched (a few MB in total).
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const BASE = 'https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x';
@@ -27,7 +27,7 @@ const SITES = [
   { id: 'REULL', name: 'Reull Vallis', lat: -42.5, lng: 102.0, halfKm: 160 },
   { id: 'NOACHIS', name: 'Noachis Terra', lat: -42.0, lng: 12.0, halfKm: 160 },
   { id: 'GALE', name: 'Gale Crater & Mount Sharp', lat: -5.4, lng: 137.8, halfKm: 110 },
-  { id: 'OLYMPUS', name: 'Olympus Mons', lat: 18.65, lng: 226.2, halfKm: 260 },
+  { id: 'OLYMPUS', name: 'Olympus Mons', lat: 18.65, lng: 226.2, halfKm: 380 }, // reaches the basal scarp
   { id: 'THARSIS', name: 'Tharsis Bulge (Pavonis Mons)', lat: 1.5, lng: 247.1, halfKm: 200 },
   { id: 'VALLES', name: 'Valles Marineris (Melas/Candor)', lat: -9.5, lng: 284.5, halfKm: 220 },
   { id: 'VASTITAS', name: 'Vastitas Borealis (Phoenix region)', lat: 68.2, lng: 234.3, halfKm: 160 },
@@ -143,19 +143,34 @@ async function bakeGlobal() {
 }
 
 await mkdir(OUT, { recursive: true });
-const global = await bakeGlobal();
-const regions = [];
-for (const site of SITES) regions.push(await bakeSite(site));
-await writeFile(
-  path.join(OUT, 'manifest.json'),
-  JSON.stringify(
-    {
-      source: 'NASA MGS MOLA MEGDR (PDS Geosciences Node), elevation in meters above the Mars areoid',
-      global,
-      regions,
-    },
-    null,
-    1
-  )
-);
-console.log('done');
+const onlyArg = process.argv.find((a) => a.startsWith('--only='));
+const manifestPath = path.join(OUT, 'manifest.json');
+if (onlyArg) {
+  // Re-bake just some sites and merge into the existing manifest (keeps global + other windows).
+  const ids = new Set(onlyArg.slice(7).split(',').map((s) => s.toUpperCase()));
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  for (const site of SITES.filter((s) => ids.has(s.id))) {
+    const entry = await bakeSite(site);
+    manifest.regions = manifest.regions.filter((r) => r.id !== site.id);
+    manifest.regions.push(entry);
+  }
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 1));
+  console.log('done (merged)');
+} else {
+  const global = await bakeGlobal();
+  const regions = [];
+  for (const site of SITES) regions.push(await bakeSite(site));
+  await writeFile(
+    manifestPath,
+    JSON.stringify(
+      {
+        source: 'NASA MGS MOLA MEGDR (PDS Geosciences Node), elevation in meters above the Mars areoid',
+        global,
+        regions,
+      },
+      null,
+      1
+    )
+  );
+  console.log('done');
+}

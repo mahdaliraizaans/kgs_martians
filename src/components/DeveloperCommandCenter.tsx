@@ -929,9 +929,10 @@ export const DeveloperCommandCenter: React.FC<DeveloperCommandCenterProps> = ({
               {(
                 [
                   { label: 'HAB-01 Base', type: 'local' as const, x: 0, y: 0, hdg: 0 },
-                  { label: 'Olympus Mons', type: 'global' as const, lat: 18.65, lng: 226.2 },
-                  { label: 'Valles Marineris', type: 'global' as const, lat: -13.9, lng: 300.8 },
-                  { label: 'Planum Boreum', type: 'global' as const, lat: 84.5, lng: 45.0 },
+                  { label: 'Olympus Mons', type: 'global' as const, lat: 22.17, lng: 221.84 },
+                  { label: 'Olympus Summit', type: 'global' as const, lat: 18.65, lng: 226.2 },
+                  { label: 'Valles Marineris', type: 'global' as const, lat: -7.89, lng: 282.59 },
+                  { label: 'Planum Boreum', type: 'global' as const, lat: 84.35, lng: 1.66 },
                 ] as const
               ).map((preset) => (
                 <button

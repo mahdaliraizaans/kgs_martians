@@ -15,6 +15,7 @@ import {
   normalizeSignedLng180,
   slerpLatLng,
   syncTerrainAnchor,
+  findScenicHeadingDeg,
 } from '../data/marsTerrain';
 import {
   checkOlympusCliffBoundary,
@@ -598,8 +599,11 @@ class VehicleSimulationEngine {
     const prevY = this.currState.y;
 
     this.controller.reset();
+    // Face the biggest real mountain/escarpment nearby so the arrival view shows terrain relief.
+    const scenicHeading = findScenicHeadingDeg(lat, lng);
     this.currState = {
       ...this.currState,
+      heading: scenicHeading !== null ? scenicHeading : this.currState.heading,
       lat,
       lng,
       speedMps: 0,

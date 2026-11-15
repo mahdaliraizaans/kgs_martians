@@ -70,16 +70,6 @@
    "lngWest": 135.9296875
   },
   {
-   "id": "OLYMPUS",
-   "name": "Olympus Mons",
-   "file": "olympus.bin",
-   "ppd": 128,
-   "width": 1185,
-   "height": 1124,
-   "latTop": 23.0390625,
-   "lngWest": 221.5703125
-  },
-  {
    "id": "THARSIS",
    "name": "Tharsis Bulge (Pavonis Mons)",
    "file": "tharsis.bin",
@@ -118,6 +108,29 @@
    "height": 432,
    "latTop": 84.6875,
    "lngWest": 346.15625
+  },
+  {
+   "id": "JEZERO_HIRISE",
+   "name": "Jezero Crater & Western Delta (HiRISE DTM ESP_045994_1985, ~4 m/px)",
+   "file": "jezero_hirise.bin",
+   "ppd": 14700,
+   "width": 1725,
+   "height": 3568,
+   "latTop": 18.548231292517006,
+   "lngWest": 77.38353741496599,
+   "scale": 0.02,
+   "offset": -2534,
+   "featherPx": 120
+  },
+  {
+   "id": "OLYMPUS",
+   "name": "Olympus Mons",
+   "file": "olympus.bin",
+   "ppd": 128,
+   "width": 1732,
+   "height": 1642,
+   "latTop": 25.0625,
+   "lngWest": 219.4296875
   }
  ]
 }

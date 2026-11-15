@@ -34,8 +34,8 @@ function albedoFor(biome: MarsBiomeId, slope: number, out: THREE.Color): THREE.C
   let dust: [number, number, number] = [0.6, 0.36, 0.25];
   let rock: [number, number, number] = [0.3, 0.2, 0.16];
   if (biome === 'OLYMPUS_MONS' || biome === 'THARSIS_BULGE' || biome === 'SYRTIS_MAJOR') {
-    dust = [0.42, 0.27, 0.21];
-    rock = [0.22, 0.16, 0.14];
+    dust = [0.5, 0.33, 0.25];
+    rock = [0.3, 0.21, 0.17];
   } else if (biome === 'PLANUM_BOREUM' || biome === 'PLANUM_AUSTRALE') {
     dust = [0.82, 0.84, 0.86];
     rock = [0.5, 0.42, 0.38];
@@ -102,7 +102,10 @@ export class MarsFarTerrain {
           float x = min(vDist, uFogCapDist) * uFogDensity;
           float ext = x * x + vDist / uHazeLength;
           float f = 1.0 - exp(-ext);
-          col = mix(col, uFogColor, clamp(f, 0.0, 0.92));
+          // Distant dust scatters light, so haze is lighter/pinker than the (often dark) sky; this
+          // keeps far mountains readable as silhouettes instead of melting into the horizon.
+          vec3 haze = mix(uFogColor, vec3(0.80, 0.54, 0.42), 0.5);
+          col = mix(col, haze, clamp(f, 0.0, 0.9));
           gl_FragColor = vec4(col, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>

@@ -695,8 +695,38 @@ export function estimateMarsTravelEtaMinutes(
 export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
   // 1. PRIMARY LANDMARKS
   {
+    // Arrival point is the NW foot of the basal escarpment (22.17°N, 221.84°E, ~322 km from the
+    // summit, real MOLA elevation about -1,700 m). From here the real data rises about 7.7 km
+    // within 20 km, so the mountain wall is genuinely visible on the horizon. The summit is
+    // its own landmark below. Found by scanning the baked MOLA window for the largest visible rise.
     id: 'LF-OLYMPUS-MONS',
     name: 'Olympus Mons',
+    tier: 'primary',
+    region: 'Tharsis Province',
+    category: 'volcano',
+    lat: 22.17,
+    lng: -138.16, // 221.84° E
+    elevationMeters: -1700,
+    dimensions: {
+      verticalMetric: '~22–26 km high above base',
+      horizontalMetric: '~600 km wide volcanic shield',
+    },
+    scienceSummary:
+      'Largest volcano in the solar system; gently sloping basaltic shield crowned by a multi-ringed summit caldera and ringed by an abrupt sheer basal cliff. Viewed here from the plains at the foot of its northwest basal escarpment.',
+    visualCharacteristics:
+      'A colossal wall of basalt rising roughly 7–8 km above the plains in only a few tens of kilometres, the basal escarpment of the shield, filling the horizon toward the southeast.',
+    terrainConstraints: [
+      'Sheer basal cliff scarp (up to 8 km vertical drop) ringing outer perimeter',
+      'Gentle 4°–6° lava-flow flanks above the basal escarpment',
+      'Nested multi-ringed summit caldera walls with fractured basalt ledges',
+    ],
+    weatherProfile: 'Ultra-thin summit atmosphere (~72 Pa); afternoon orographic water-ice clouds.',
+    difficulty: 'EXTREME',
+    adjacentIds: ['LF-THARSIS-BULGE', 'LF-NORTHERN-LOWLANDS', 'LF-OLYMPIA-UNDAE', 'LF-OLYMPUS-SUMMIT'],
+  },
+  {
+    id: 'LF-OLYMPUS-SUMMIT',
+    name: 'Olympus Mons Summit Caldera',
     tier: 'primary',
     region: 'Tharsis Province',
     category: 'volcano',
@@ -705,20 +735,19 @@ export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
     elevationMeters: 21900,
     dimensions: {
       verticalMetric: '~22–26 km high above base',
-      horizontalMetric: '~600 km wide volcanic shield',
+      horizontalMetric: '~80 km wide summit caldera complex',
     },
     scienceSummary:
-      'Largest volcano in the solar system; gently sloping basaltic shield crowned by a multi-ringed summit caldera and ringed by an abrupt sheer basal cliff.',
+      'Summit of the largest volcano in the solar system: a multi-ringed collapse caldera on a very broad, gently sloping shield.',
     visualCharacteristics:
-      'Broad, gently sloping dark shield dome rising into thin high-altitude air; multi-ringed collapse crater (caldera) nested at the summit; perimeter drops off abruptly in a sheer 8 km cliff wall encircling the base.',
+      'Standing on the summit the shield falls away so gently (a few degrees) that it reads as a vast plateau with the caldera walls as the only relief.',
     terrainConstraints: [
-      'Sheer basal cliff scarp (up to 8 km vertical drop) ringing outer perimeter',
-      'Gentle 4°–6° lava-flow flanks above the basal escarpment',
       'Nested multi-ringed summit caldera walls with fractured basalt ledges',
+      'Gentle 4°–6° lava-flow flanks',
     ],
     weatherProfile: 'Ultra-thin summit atmosphere (~72 Pa); afternoon orographic water-ice clouds.',
     difficulty: 'EXTREME',
-    adjacentIds: ['LF-THARSIS-BULGE', 'LF-NORTHERN-LOWLANDS', 'LF-OLYMPIA-UNDAE'],
+    adjacentIds: ['LF-OLYMPUS-MONS', 'LF-THARSIS-BULGE'],
   },
   {
     id: 'LF-VALLES-MARINERIS',
@@ -726,9 +755,9 @@ export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
     tier: 'primary',
     region: 'Equatorial Rift Belt',
     category: 'canyon',
-    lat: -13.9,
-    lng: -59.2, // 300.8° E
-    elevationMeters: -7000,
+    lat: -7.89,
+    lng: -77.41, // 282.59° E, Melas/Candor chasma wall: ~6.8 km real rise within 20 km
+    elevationMeters: -2850,
     dimensions: {
       verticalMetric: '8–10 km deep chasm floor',
       horizontalMetric: '3,000–5,000 km equatorial length',
@@ -752,9 +781,9 @@ export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
     tier: 'primary',
     region: 'Aeolis Quadrangle',
     category: 'crater',
-    lat: -5.4,
-    lng: 137.8, // 137.8° E
-    elevationMeters: -4500,
+    lat: -4.66,
+    lng: 137.53, // 137.53° E, crater floor beside Mount Sharp: ~4.4 km real rise within 20 km
+    elevationMeters: -4149,
     dimensions: {
       verticalMetric: '5.5 km central peak (Aeolis Mons)',
       horizontalMetric: '154 km wide impact basin',
@@ -778,9 +807,9 @@ export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
     tier: 'primary',
     region: 'North Polar Basin',
     category: 'polar',
-    lat: 85.0,
-    lng: 15.0, // 15.0° E
-    elevationMeters: -2000,
+    lat: 84.35,
+    lng: 1.66, // 1.66° E, Chasma Boreale (inside real MOLA window)
+    elevationMeters: -4560,
     dimensions: {
       verticalMetric: '~3 km thick layered ice dome',
       horizontalMetric: '~1,000 km circular polar dome',
@@ -832,9 +861,9 @@ export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
     tier: 'regional',
     region: 'Western Hemisphere Dome',
     category: 'volcano',
-    lat: 0.0,
-    lng: -110.0, // 250.0° E
-    elevationMeters: 10000,
+    lat: 0.35,
+    lng: -112.9, // 247.1° E, Pavonis Mons flank: ~4.8 km real rise within 20 km
+    elevationMeters: 9224,
     dimensions: {
       verticalMetric: '~10 km high volcanic plateau',
       horizontalMetric: '~4,000 km wide equatorial dome',
@@ -858,9 +887,9 @@ export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
     tier: 'regional',
     region: 'Southern Impact Basin',
     category: 'plains',
-    lat: -42.4,
-    lng: 70.5, // 70.5° E
-    elevationMeters: -7152,
+    lat: -45.37,
+    lng: 71.78, // 71.78° E, deep basin floor under the real rim scarps
+    elevationMeters: -7189,
     dimensions: {
       verticalMetric: '~7.2 km below datum (deepest basin)',
       horizontalMetric: '~2,300 km wide oval depression',
@@ -910,9 +939,9 @@ export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
     tier: 'regional',
     region: 'Hemispheric Dichotomy · South',
     category: 'highlands',
-    lat: -45.0,
-    lng: -10.0, // 350.0° E
-    elevationMeters: 2200,
+    lat: -40.38,
+    lng: 11.91, // 11.91° E, cratered Noachis Terra scarp (inside real MOLA window)
+    elevationMeters: -39,
     dimensions: {
       verticalMetric: '~+2 to +4 km crustal elevation',
       horizontalMetric: 'Southern planetary hemisphere',
@@ -936,9 +965,9 @@ export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
     tier: 'regional',
     region: 'Hemispheric Dichotomy · North',
     category: 'plains',
-    lat: 62.0,
-    lng: -20.0, // 340.0° E
-    elevationMeters: -4500,
+    lat: 68.33,
+    lng: -124.61, // 235.39° E, Vastitas Borealis near Phoenix (inside real MOLA window)
+    elevationMeters: -4682,
     dimensions: {
       verticalMetric: '~6 km lower than Southern Highlands',
       horizontalMetric: 'Circumpolar northern plains',
@@ -1016,9 +1045,9 @@ export const MARS_PLANETARY_LANDMARKS: MarsLandform[] = [
     tier: 'surface',
     region: 'Promethei Terra · East Hellas',
     category: 'fluvial',
-    lat: -42.1,
-    lng: 104.0, // 104.0° E
-    elevationMeters: -1800,
+    lat: -40.68,
+    lng: 103.47, // 103.47° E, channel wall: ~4.9 km real rise within 20 km
+    elevationMeters: -516,
     dimensions: {
       verticalMetric: '~1.5 km incised canyon walls',
       horizontalMetric: '~1,500 km sinuous river valley',
