@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  fractalTerrainDetail,
+  terrainDetailStack,
   getRealBaseElevation,
   getTerrainFrameId,
   terrainRoughnessFromSlope,
@@ -217,9 +217,9 @@ export class MarsFarTerrain {
         const dx = (base[(j + pad) * pn + ii1] - base[(j + pad) * pn + ii0]) / ((ii1 - ii0) * l.cell);
         const dz = (base[jj1 * pn + (i + pad)] - base[jj0 * pn + (i + pad)]) / ((jj1 - jj0) * l.cell);
         const rough = terrainRoughnessFromSlope(Math.hypot(dx, dz));
-        const polar = this.biomeId === 'PLANUM_BOREUM' || this.biomeId === 'PLANUM_AUSTRALE';
-        const smooth = polar && this.frostMode === 'DEPOSITION' ? 0.5 : 1;
-        const h = base[bi] + fractalTerrainDetail(x, z, rough, Math.max(12, l.cell * 4)) * smooth;
+        const h =
+          base[bi] +
+          terrainDetailStack(x, z, rough, Math.max(12, l.cell * 4), this.biomeId, this.frostMode);
         const o = j * n + i;
         heights[o] = h;
         positions[o * 3] = x - l.centerX;

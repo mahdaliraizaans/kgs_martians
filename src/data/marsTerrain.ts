@@ -10,6 +10,7 @@ import {
   TopographicTelemetry,
 } from '../types/telemetry';
 import { getMarsDemVersion, isMarsDemReady, sampleMolaMeters } from './marsDem';
+import { geoClassForBiome, geomorphDetail, type GeoClass } from './terrainGeomorph';
 import {
   MARS_PLANETARY_LANDMARKS,
   LANDFORM_CATEGORY_COLORS,
@@ -597,6 +598,30 @@ export function getRealBaseElevation(x: number, z: number): number {
   return 16 + (mola - a.baseMola);
 }
 
+/**
+ * All detail layered on the real elevation: fractal roughness plus the geomorphology layer
+ * (craters, hills, ridges, dunes, mesas, troughs) for the active biome's terrain class.
+ */
+export function terrainDetailStack(
+  x: number,
+  z: number,
+  rough: number,
+  minWavelength: number,
+  biomeId: MarsBiomeId,
+  frostMode: SeasonalFrostMode
+): number {
+  const polar = biomeId === 'PLANUM_BOREUM' || biomeId === 'PLANUM_AUSTRALE';
+  const smooth = polar && frostMode === 'DEPOSITION' ? 0.5 : 1;
+  // Jezero's local window is real HiRISE data; keep it untouched up close, but give the distant
+  // crater rim the same geology as everywhere else.
+  const cls: GeoClass =
+    !terrainAnchor && biomeId === 'JEZERO_CRATER' && minWavelength < 100 ? 'NONE' : geoClassForBiome(biomeId);
+  return (
+    (fractalTerrainDetail(x, z, rough, minWavelength) + geomorphDetail(x, z, cls, rough, minWavelength)) *
+    smooth
+  );
+}
+
 /** Full terrain height as seen from a mesh with the given cell size (0 = finest). */
 export function getMarsElevationLod(
   x: number,
@@ -606,11 +631,9 @@ export function getMarsElevationLod(
   biomeId: MarsBiomeId,
   frostMode: SeasonalFrostMode
 ): number {
-  const polar = biomeId === 'PLANUM_BOREUM' || biomeId === 'PLANUM_AUSTRALE';
-  const smooth = polar && frostMode === 'DEPOSITION' ? 0.5 : 1;
   return (
     getRealBaseElevation(x, z) +
-    fractalTerrainDetail(x, z, rough, Math.max(12, cellSize * 4)) * smooth
+    terrainDetailStack(x, z, rough, Math.max(12, cellSize * 4), biomeId, frostMode)
   );
 }
 
@@ -623,15 +646,12 @@ function getRealTerrainElevation(
   frostMode: SeasonalFrostMode
 ): number {
   const base = getRealBaseElevation(x, z);
+  // forward differences (2 extra samples instead of 4): the roughness only needs a rough slope
   const hE = getRealBaseElevation(x + ROUGH_PROBE_M, z);
-  const hW = getRealBaseElevation(x - ROUGH_PROBE_M, z);
   const hN = getRealBaseElevation(x, z + ROUGH_PROBE_M);
-  const hS = getRealBaseElevation(x, z - ROUGH_PROBE_M);
-  const slope = Math.hypot(hE - hW, hN - hS) / (2 * ROUGH_PROBE_M);
+  const slope = Math.hypot(hE - base, hN - base) / ROUGH_PROBE_M;
   const rough = terrainRoughnessFromSlope(slope);
-  const polar = biomeId === 'PLANUM_BOREUM' || biomeId === 'PLANUM_AUSTRALE';
-  const smooth = polar && frostMode === 'DEPOSITION' ? 0.5 : 1;
-  return base + fractalTerrainDetail(x, z, rough, 12) * smooth;
+  return base + terrainDetailStack(x, z, rough, 12, biomeId, frostMode);
 }
 
 /**
@@ -847,9 +867,9 @@ function gridCenter(): { cx: number; cz: number } {
 }
 
 function gridKey(biomeId: MarsBiomeId, frostMode: SeasonalFrostMode): string {
-  // Real DEM heights are independent of biome; only polar frost smoothing varies the detail layer.
+  // The geomorphology layer depends on the biome's terrain class; polar frost smooths the detail.
   return isMarsDemReady()
-    ? `dem:${getTerrainFrameId()}:${biomeId === 'PLANUM_BOREUM' || biomeId === 'PLANUM_AUSTRALE' ? frostMode : ''}`
+    ? `dem:${getTerrainFrameId()}:${geoClassForBiome(biomeId)}:${!terrainAnchor && biomeId === 'JEZERO_CRATER' ? 'j' : ''}:${biomeId === 'PLANUM_BOREUM' || biomeId === 'PLANUM_AUSTRALE' ? frostMode : ''}`
     : `${biomeId}:${frostMode}`;
 }
 
