@@ -1,0 +1,810 @@
+/**
+ * Shared Huge Martian World Model (3,600m x 3,600m Jezero Crater & Belva Delta Sector)
+ * Grounded in NASA MRO HiRISE DTM (PSP_001415_1985), Mars Odyssey THEMIS Thermal Inertia,
+ * and Mars 2020 Perseverance Traverse Landmarks.
+ */
+
+import {
+  MarsBiomeId,
+  SeasonalFrostMode,
+  TopographicTelemetry,
+} from '../types/telemetry';
+import {
+  MARS_PLANETARY_LANDMARKS,
+  LANDFORM_CATEGORY_COLORS,
+  LandformCategory,
+  MarsLandform,
+  LandmarkTier,
+  TraversalDifficulty,
+  PlanetaryRoutePlan,
+  RegionalZoneOverlay,
+  MARS_REGIONAL_ZONES,
+  LANDMARK_BY_ID,
+  MARS_METERS_PER_DEG_LAT,
+  marsDistanceKm,
+  marsBearingDeg,
+  marsStepGreatCircle,
+  latLngToAzimuthalMeters,
+  azimuthalMetersToLatLng,
+  orthographicProject,
+  orthographicInverse,
+  estimatePlanetaryElevationMeters,
+  estimateMarsTravelEtaMinutes,
+  formatAreographicCoords,
+  toEastLongitude360,
+  normalizeSignedLng180,
+  shortestLngDeltaDeg,
+  slerpLatLng,
+  computePlanetaryRoute,
+  sampleGreatCircleArc,
+  generateAdaptiveGreatCircleWaypoints,
+  splitAntimeridianPolyline,
+} from './marsCartography';
+
+export type {
+  LandformCategory,
+  MarsLandform,
+  LandmarkTier,
+  TraversalDifficulty,
+  PlanetaryRoutePlan,
+  RegionalZoneOverlay,
+};
+
+export {
+  LANDFORM_CATEGORY_COLORS,
+  MARS_REGIONAL_ZONES,
+  LANDMARK_BY_ID,
+  MARS_METERS_PER_DEG_LAT,
+  marsDistanceKm,
+  marsBearingDeg,
+  marsStepGreatCircle,
+  latLngToAzimuthalMeters,
+  azimuthalMetersToLatLng,
+  orthographicProject,
+  orthographicInverse,
+  estimatePlanetaryElevationMeters,
+  estimateMarsTravelEtaMinutes,
+  formatAreographicCoords,
+  toEastLongitude360,
+  normalizeSignedLng180,
+  shortestLngDeltaDeg,
+  slerpLatLng,
+  computePlanetaryRoute,
+  sampleGreatCircleArc,
+  generateAdaptiveGreatCircleWaypoints,
+  splitAntimeridianPolyline,
+};
+
+export interface MarsWaypoint {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  type: 'habitat' | 'science' | 'cache' | 'landmark';
+  description: string;
+}
+
+export const VISOR_PROXIMITY_THRESHOLD_KM = 300;
+
+export const WAYPOINT_TYPE_COLORS: Record<MarsWaypoint['type'], { hex: string; num: number }> = {
+  habitat: { hex: '#10b981', num: 0x10b981 },
+  cache: { hex: '#38bdf8', num: 0x38bdf8 },
+  science: { hex: '#f59e0b', num: 0xf59e0b },
+  landmark: { hex: '#06b6d4', num: 0x06b6d4 },
+};
+
+export interface RadiationHotspot {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  radius: number;
+  doseRateMicroSvHr: number;
+}
+
+export interface CraterFeature {
+  name: string;
+  x: number;
+  z: number;
+  radius: number;
+  depth: number;
+  rimHeight: number;
+}
+
+export const WORLD_HALF_EXTENT = 1800; // 3,600m x 3,600m total playable terrain
+
+// Official & Extended Jezero Crater Landmarks across the 3.6 km map
+export const MARS_WAYPOINTS: MarsWaypoint[] = [
+  {
+    id: 'HAB-01',
+    name: 'Jezero Pressurized Habitat',
+    x: 0,
+    z: 0,
+    type: 'habitat',
+    description: 'Primary life-support airlock, O2 recharge manifold & radiation shelter.',
+  },
+  {
+    id: 'WP-01',
+    name: 'Octavia E. Butler Touchdown',
+    x: 160,
+    z: -140,
+    type: 'landmark',
+    description: 'Perseverance landing pad & basaltic crater floor benchmark.',
+  },
+  {
+    id: 'WP-02',
+    name: 'Séítah Aeolian Sand Dunes',
+    x: -220,
+    z: 280,
+    type: 'science',
+    description: 'Olivine-rich bedrock exposed beneath migrating dark sand ripples.',
+  },
+  {
+    id: 'WP-03',
+    name: 'Kodiak Butte Overlook',
+    x: -440,
+    z: 490,
+    type: 'landmark',
+    description: 'Isolated flat-topped delta remnant showing ancient river cross-bedding.',
+  },
+  {
+    id: 'WP-DELTA-04',
+    name: 'Belva Outcrop / Delta Rim',
+    x: -580,
+    z: 860,
+    type: 'science',
+    description: 'Primary geological drill target perched above the 18.4% delta escarpment.',
+  },
+  {
+    id: 'WP-CRATER-05',
+    name: 'Belva Impact Bowl Rim',
+    x: -920,
+    z: 1080,
+    type: 'science',
+    description: '900m-wide impact crater exposing deep Noachian crustal stratigraphy.',
+  },
+  {
+    id: 'WP-RIDGE-06',
+    name: 'Neretva Vallis Channel Ridge',
+    x: 540,
+    z: 920,
+    type: 'landmark',
+    description: 'Ancient river inlet valley carving through the western crater wall.',
+  },
+  {
+    id: 'WP-CACHE-07',
+    name: 'Emergency O2 & Power Depot',
+    x: 340,
+    z: 420,
+    type: 'cache',
+    description: 'Autonomous surface supply cache with reserve O2 canisters & RTG link.',
+  },
+];
+
+// Global Planetary Landmarks, Broad Regional Features & Surface Zones
+export const MARS_LANDFORMS: MarsLandform[] = MARS_PLANETARY_LANDMARKS;
+
+const JEZERO_ORIGIN_LAT = 18.44;
+const JEZERO_ORIGIN_LON = 77.45;
+const METERS_PER_DEG_LAT_CONST = 59274;
+const METERS_PER_DEG_LON_CONST = METERS_PER_DEG_LAT_CONST * Math.cos((JEZERO_ORIGIN_LAT * Math.PI) / 180);
+
+export function jezeroLocalToLatLng(x: number, y: number): { lat: number; lng: number } {
+  return {
+    lat: JEZERO_ORIGIN_LAT + y / METERS_PER_DEG_LAT_CONST,
+    lng: JEZERO_ORIGIN_LON + x / METERS_PER_DEG_LON_CONST,
+  };
+}
+
+export type ScienceFeatureCategory = 'DELTA_FORMATION' | 'SUBSURFACE_ICE' | 'MINERAL_RESERVE';
+
+export interface ScienceFeature {
+  id: string;
+  name: string;
+  category: ScienceFeatureCategory;
+  categoryLabel: string;
+  x: number;
+  z: number;
+  discoveryRadiusMeters: number;
+  colorHex: string;
+  colorNum: number;
+  mineralSignature: string;
+  summary: string;
+}
+
+export const JEZERO_SCIENCE_FEATURES: ScienceFeature[] = [
+  {
+    id: 'SCI-DELTA-01',
+    name: 'Neretva Delta Escarpment Bench',
+    category: 'DELTA_FORMATION',
+    categoryLabel: 'DELTA FORMATION',
+    x: -260,
+    z: 340,
+    discoveryRadiusMeters: 120,
+    colorHex: '#f59e0b',
+    colorNum: 0xf59e0b,
+    mineralSignature: 'Cross-bedded Fluvial Sandstone & Siltstone',
+    summary: 'Stratified ancient river delta terrace with horizontal bedding planes and eroded basal talus aprons.',
+  },
+  {
+    id: 'SCI-DELTA-02',
+    name: 'Kodiak Stratified Mesa Terrace',
+    category: 'DELTA_FORMATION',
+    categoryLabel: 'DELTA FORMATION',
+    x: -440,
+    z: 490,
+    discoveryRadiusMeters: 120,
+    colorHex: '#f59e0b',
+    colorNum: 0xf59e0b,
+    mineralSignature: 'Prograding Gilbert Delta Foreset Beds',
+    summary: 'Isolated flat-topped delta remnant preserving ancient lake-level cross-bedding and conglomerate lenses.',
+  },
+  {
+    id: 'SCI-DELTA-03',
+    name: 'Belva Delta Stratigraphy Scarp',
+    category: 'DELTA_FORMATION',
+    categoryLabel: 'DELTA FORMATION',
+    x: -580,
+    z: 860,
+    discoveryRadiusMeters: 120,
+    colorHex: '#f59e0b',
+    colorNum: 0xf59e0b,
+    mineralSignature: 'Lacustrine Mudstone & Phyllosilicates',
+    summary: '18.4% delta escarpment exposing layered lacustrine mudstone prime for astrobiological core sampling.',
+  },
+  {
+    id: 'SCI-ICE-01',
+    name: 'Séítah North-Wall Subsurface Ice',
+    category: 'SUBSURFACE_ICE',
+    categoryLabel: 'SUBSURFACE ICE',
+    x: -490,
+    z: -310,
+    discoveryRadiusMeters: 120,
+    colorHex: '#38bdf8',
+    colorNum: 0x38bdf8,
+    mineralSignature: 'Exposed H₂O Ice Clasts & Regolith Frost',
+    summary: 'Shadowed north-facing crater wall pocket exposing translucent blue-white subsurface water-ice boulders.',
+  },
+  {
+    id: 'SCI-ICE-02',
+    name: 'South Micro-Crater Shadow Ice Lens',
+    category: 'SUBSURFACE_ICE',
+    categoryLabel: 'SUBSURFACE ICE',
+    x: -175,
+    z: -705,
+    discoveryRadiusMeters: 120,
+    colorHex: '#38bdf8',
+    colorNum: 0x38bdf8,
+    mineralSignature: 'Crystalline Water-Ice & Ferric Dust Coating',
+    summary: 'Deep micro-crater shadow trap preserving jagged subsurface water-ice formations dusted with red regolith.',
+  },
+  {
+    id: 'SCI-ICE-03',
+    name: 'North Escarpment Ice Pocket',
+    category: 'SUBSURFACE_ICE',
+    categoryLabel: 'SUBSURFACE ICE',
+    x: 155,
+    z: 1180,
+    discoveryRadiusMeters: 120,
+    colorHex: '#38bdf8',
+    colorNum: 0x38bdf8,
+    mineralSignature: 'Subsurface Permafrost & Brine-Altered Ice',
+    summary: 'North-facing escarpment recess revealing fractured translucent water-ice veins beneath basaltic talus.',
+  },
+  {
+    id: 'SCI-MIN-01',
+    name: 'Séítah Olivine & Carbonate Vein',
+    category: 'MINERAL_RESERVE',
+    categoryLabel: 'MINERAL RESERVE',
+    x: -140,
+    z: 220,
+    discoveryRadiusMeters: 120,
+    colorHex: '#a3e635',
+    colorNum: 0xa3e635,
+    mineralSignature: 'Mg-Carbonate, Forsterite Olivine & Sulfates',
+    summary: 'Dark vesicular volcanic basalt outcrop cut by iridescent green-gold olivine and carbonate mineral veins.',
+  },
+  {
+    id: 'SCI-MIN-02',
+    name: 'Butler Basalt & Hydrated Silica Reserve',
+    category: 'MINERAL_RESERVE',
+    categoryLabel: 'MINERAL RESERVE',
+    x: 245,
+    z: -85,
+    discoveryRadiusMeters: 120,
+    colorHex: '#2dd4bf',
+    colorNum: 0x2dd4bf,
+    mineralSignature: 'Opalescent Hydrated Silica & Basaltic Glass',
+    summary: 'Vesicular crater-floor basalt spire laced with iridescent hydrated silica and metallic oxide seams.',
+  },
+  {
+    id: 'SCI-MIN-03',
+    name: 'East Basin Carbonate & Olivine Ridge',
+    category: 'MINERAL_RESERVE',
+    categoryLabel: 'MINERAL RESERVE',
+    x: 490,
+    z: 240,
+    discoveryRadiusMeters: 120,
+    colorHex: '#a3e635',
+    colorNum: 0xa3e635,
+    mineralSignature: 'Authigenic Carbonate & Fe/Mg-Smectite',
+    summary: 'High-value mineral reserve ridge featuring dark pitted basalt and iridescent carbonate fracture fills.',
+  },
+];
+
+// Realistic impact craters embedded in the heightfield
+export const MARS_CRATERS: CraterFeature[] = [
+  { name: 'Belva Crater', x: -980, z: 1180, radius: 240, depth: 36, rimHeight: 11 },
+  { name: 'Séítah Bowl', x: -520, z: -380, radius: 145, depth: 20, rimHeight: 6 },
+  { name: 'Neretva Depression', x: 680, z: 640, radius: 185, depth: 26, rimHeight: 8 },
+  { name: 'East Basin Crater', x: 820, z: -520, radius: 210, depth: 30, rimHeight: 9 },
+  { name: 'South Micro-Crater', x: -180, z: -760, radius: 95, depth: 14, rimHeight: 4.5 },
+  { name: 'North Escarpment Pit', x: 140, z: 1250, radius: 130, depth: 22, rimHeight: 7 },
+];
+
+// Secondary micro-craters for fine HiRISE surface authenticity
+const SECONDARY_MICRO_CRATERS: ReadonlyArray<{ x: number; z: number; radius: number; depth: number; rimHeight: number }> = [
+  { x: 260, z: 180, radius: 38, depth: 5.5, rimHeight: 1.8 },
+  { x: -310, z: 110, radius: 44, depth: 6.2, rimHeight: 2.1 },
+  { x: 420, z: -260, radius: 52, depth: 7.4, rimHeight: 2.4 },
+  { x: -720, z: 240, radius: 64, depth: 8.8, rimHeight: 2.8 },
+  { x: 110, z: -430, radius: 48, depth: 6.8, rimHeight: 2.2 },
+  { x: -85, z: 610, radius: 42, depth: 5.8, rimHeight: 1.9 },
+  { x: 960, z: 260, radius: 58, depth: 8.0, rimHeight: 2.5 },
+  { x: -1120, z: -680, radius: 75, depth: 10.5, rimHeight: 3.2 },
+];
+
+/**
+ * Evaluates a realistic Martian impact crater profile:
+ * flat dust-filled floor -> terraced/sloped inner wall -> raised ejecta rim -> hummocky ejecta apron.
+ */
+function evalSculptedCrater(
+  x: number,
+  z: number,
+  cx: number,
+  cz: number,
+  radius: number,
+  depth: number,
+  rimHeight: number,
+  scaleMult = 1.0
+): number {
+  const dx = x - cx;
+  const dz = z - cz;
+  const maxR = radius * 1.65;
+  if (Math.abs(dx) > maxR || Math.abs(dz) > maxR) return 0;
+  const d = Math.hypot(dx, dz);
+  if (d >= maxR) return 0;
+
+  const norm = d / radius;
+  const angle = Math.atan2(dz, dx);
+
+  if (norm < 1.0) {
+    // Flat dust-filled floor for inner 44% of radius, smoothly curving up a sloped wall to rim crest
+    const floorRadius = 0.44;
+    let bowl = -depth;
+    if (norm >= floorRadius) {
+      const t = (norm - floorRadius) / (1.0 - floorRadius); // 0 at floor edge, 1 at rim
+      // Smooth S-curve wall with subtle slump terrace around mid-wall
+      const smoothWall = t * t * (3 - 2 * t);
+      const terrace = Math.sin(t * Math.PI * 2.0) * 0.045 * (1 - t);
+      bowl = -depth * (1.0 - Math.min(1.0, smoothWall + terrace));
+    } else {
+      // Very gentle saucer settling on flat dust floor
+      const ft = norm / floorRadius;
+      bowl = -depth * (1.0 - ft * ft * 0.06);
+    }
+    const rim = Math.exp(-Math.pow((norm - 1.0) / 0.14, 2)) * rimHeight;
+    return (bowl + rim) * scaleMult;
+  }
+
+  // Outer ejecta rim + hummocky radial ejecta blanket decaying smoothly to zero at 1.65R
+  const rimFalloff = Math.exp(-Math.pow((norm - 1.0) / 0.22, 2)) * rimHeight;
+  const ejectaFade = Math.max(0, 1.0 - (norm - 1.0) / 0.65);
+  const ejectaLobes =
+    (Math.sin(angle * 11 + norm * 5.0) * 0.5 + 0.5) * rimHeight * 0.22 * ejectaFade * ejectaFade;
+  return (rimFalloff + ejectaLobes) * scaleMult;
+}
+
+// Ionizing radiation / solar proton exposure hotspots (elevated secondary neutron albedo)
+export const RADIATION_HOTSPOTS: RadiationHotspot[] = [
+  {
+    id: 'RAD-ZONE-A',
+    name: 'Belva Rim Albedo Hotspot',
+    x: -760,
+    z: 740,
+    radius: 135,
+    doseRateMicroSvHr: 54.0,
+  },
+  {
+    id: 'RAD-ZONE-B',
+    name: 'Neretva Fault Ionizing Pocket',
+    x: 360,
+    z: 780,
+    radius: 120,
+    doseRateMicroSvHr: 48.5,
+  },
+  {
+    id: 'RAD-ZONE-C',
+    name: 'East Basin Secondary Neutron Field',
+    x: 560,
+    z: -240,
+    radius: 145,
+    doseRateMicroSvHr: 42.0,
+  },
+];
+
+/**
+ * Continuous procedural Mars terrain heightfield across the 3.6km x 3.6km local viewport,
+ * dynamically adapting relief geometry to the active Martian biome.
+ */
+export function getMarsElevation(
+  x: number,
+  z: number,
+  biomeId: MarsBiomeId = 'JEZERO_CRATER',
+  frostMode: SeasonalFrostMode = 'SUBLIMATION'
+): number {
+  if (biomeId === 'OLYMPUS_MONS' || biomeId === 'THARSIS_BULGE') {
+    const isOlympus = biomeId === 'OLYMPUS_MONS';
+    const r = Math.hypot(x, z);
+    const angle = Math.atan2(z, x);
+    const lavaLobes =
+      Math.sin(angle * 14 + r * 0.005) * 4.5 +
+      Math.cos(angle * 7 - r * 0.003) * 6.2 +
+      Math.sin(x * 0.022 + z * 0.018) * 1.8;
+
+    if (isOlympus) {
+      // Towering Olympus Mons volcanic shield rising steeply toward summit caldera + sheer basal cliff collar
+      const peakRise = Math.max(0, 148 - Math.pow(r / 18, 0.88) * 1.35);
+      // Multi-ring summit caldera collapse crater centered near (-320, 380)
+      const calDist = Math.hypot(x + 320, z - 380);
+      const calderaRim = Math.exp(-Math.pow((calDist - 240) / 55, 2)) * 34;
+      const calderaPit = calDist < 220 ? -Math.min(46, Math.cos((calDist / 220) * (Math.PI * 0.5)) * 46) : 0;
+      // Sheer 8km-scaled basal escarpment cliff plunging abruptly at r > 1180m
+      const basalCliffDrop =
+        r > 1160 ? -Math.min(118, Math.pow((r - 1160) / 85, 1.35) * 38) : 0;
+      return 32 + peakRise + lavaLobes + calderaRim + calderaPit + basalCliffDrop;
+    }
+
+    // THARSIS_BULGE: Sculpted Tharsis Montes shield volcano cones + caldera pits + tectonic graben rifts
+    const mainConeDist = Math.hypot(x + 420, z - 460);
+    const mainCone = Math.max(0, 158 - Math.pow(mainConeDist / 16, 0.92) * 1.75);
+    const mainCaldera =
+      mainConeDist < 170 ? -Math.cos((mainConeDist / 170) * (Math.PI * 0.5)) * 38 : 0;
+
+    const flankConeDist = Math.hypot(x - 640, z + 520);
+    const flankCone = Math.max(0, 102 - Math.pow(flankConeDist / 15, 0.95) * 1.65);
+
+    const grabenDist = Math.abs(z + x * 0.42 - 180);
+    const grabenCleft = grabenDist < 95 ? -(Math.cos((grabenDist / 95) * Math.PI) + 1) * 18 : 0;
+    return 18 + mainCone + mainCaldera + flankCone + grabenCleft + lavaLobes;
+  }
+
+  if (biomeId === 'VALLES_MARINERIS') {
+    // Deep negative tectonic chasm trench (-135m floor -> +78m equatorial canyon plateau rim = >210m terraced canyon walls)
+    const chasmCenterZ = Math.sin(x * 0.0024) * 145;
+    const chasmHalfWidth = 310 + Math.sin(x * 0.0032 + 1.1) * 85;
+    const distFromCenter = Math.abs(z - chasmCenterZ);
+
+    // Branching tributary side-chasma cutting north/south
+    const sideChasmDist = Math.min(
+      Math.hypot((x + 360) * 1.35, Math.max(0, z - 240)),
+      Math.hypot((x - 480) * 1.35, Math.max(0, -z - 220))
+    );
+    const effectiveWallDist = Math.min(
+      Math.max(0, distFromCenter - chasmHalfWidth),
+      Math.max(0, sideChasmDist - 140)
+    );
+
+    // Deep canyon floor at -135m stepping steeply up terraced strata benches to +78m plateau
+    const rawClimb = Math.min(215, Math.pow(effectiveWallDist / 22, 1.25) * 24);
+    const strataStep = Math.floor(rawClimb / 16) * 16 + (rawClimb % 16) * 0.42;
+    const talusApron =
+      effectiveWallDist > 0 && effectiveWallDist < 210
+        ? (Math.sin(x * 0.032 + z * 0.025) * 4.2 + Math.cos(x * 0.07) * 2.4) * (1 - effectiveWallDist / 210)
+        : 0;
+    const floorRipples = Math.sin(x * 0.012) * Math.cos(z * 0.018) * 1.8;
+    return -135 + strataStep + talusApron + floorRipples;
+  }
+
+  if (biomeId === 'GALE_CRATER') {
+    // Concave crater basin (-42m floor) + outer crater rim ridge (+62m at r > 1160m) + Mount Sharp layered central mound (+155m)
+    const r = Math.hypot(x, z);
+    const rimDist = Math.min(r, 1850);
+    const outerCraterRim =
+      rimDist > 1140 ? Math.min(104, Math.pow((rimDist - 1140) / 145, 1.45) * 24) : 0;
+
+    // Aeolis Mons / Mount Sharp physical central peak with stepped sedimentary strata terraces
+    const distMound = Math.hypot(x + 220, z - 260);
+    const rawMound = Math.max(0, 158 - Math.pow(distMound / 14.5, 0.92) * 1.85);
+    const layeredTerraces = Math.floor(rawMound / 11) * 11 + (rawMound % 11) * 0.48;
+    const slabFractures = Math.floor((Math.sin(x * 0.016) + Math.cos(z * 0.016)) * 2.2) * 1.1;
+    const bagnoldDunes = Math.sin(x * 0.045 + z * 0.03) * 2.2;
+    return -42 + layeredTerraces + outerCraterRim + slabFractures + bagnoldDunes;
+  }
+
+  if (biomeId === 'PLANUM_BOREUM' || biomeId === 'PLANUM_AUSTRALE') {
+    // Bright smooth water-ice dome etched with deep spiral troughs + outer circumpolar dark dune ergs
+    const r = Math.hypot(x, z);
+    const theta = Math.atan2(z, x);
+    const iceDome = Math.max(0, 42 - r * 0.014);
+    // Deep spiral troughs curving around the polar dome
+    const spiralPhase = Math.sin(r * 0.014 - theta * 3.0);
+    const spiralTrough = spiralPhase > 0.42 ? -Math.pow((spiralPhase - 0.42) / 0.58, 1.35) * 30 : 0;
+    const frostSmooth = frostMode === 'DEPOSITION' ? 0.45 : 1.0;
+    const ergDunes = r > 1100 ? Math.sin(x * 0.038 + z * 0.022) * 4.2 * ((r - 1100) / 700) : 0;
+    return 18 + iceDome + spiralTrough * frostSmooth + ergDunes * frostSmooth;
+  }
+
+  if (biomeId === 'HELLAS_PLANITIA') {
+    // Deep negative impact basin floor (-95m) ringed by rugged +85m rim mountain scarps at r > 840m
+    const r = Math.hypot(x, z);
+    const smoothFloor = Math.sin(x * 0.008 + z * 0.007) * 1.6 + Math.cos(x * 0.02) * 0.8;
+    const rimMountains =
+      r > 840
+        ? Math.min(182, Math.pow((r - 840) / 145, 1.42) * 34 * (0.72 + 0.36 * Math.sin(Math.atan2(z, x) * 9 + r * 0.01)))
+        : 0;
+    return -95 + smoothFloor + rimMountains;
+  }
+
+  if (biomeId === 'SOUTHERN_HIGHLANDS') {
+    // High-density impact craters, rugged fault escarpments, and incised dried river valley (Reull Vallis)
+    const escarps = Math.sin(x * 0.005 + z * 0.004) * 14 + Math.cos(x * 0.012 - z * 0.009) * 8;
+    // Dried river valley channel meandering across x/z
+    const valleyCenterZ = Math.sin(x * 0.0025) * 260;
+    const valleyDist = Math.abs(z - valleyCenterZ);
+    const riverChannel = valleyDist < 140 ? -(Math.cos((valleyDist / 140) * Math.PI) + 1) * 11 : 0;
+    // High-density sculpted craters
+    let craters = 0;
+    for (let i = 0; i < MARS_CRATERS.length; i++) {
+      const c = MARS_CRATERS[i];
+      craters += evalSculptedCrater(x, z, c.x, c.z, c.radius, c.depth, c.rimHeight, 1.18);
+    }
+    for (let i = 0; i < SECONDARY_MICRO_CRATERS.length; i++) {
+      const mc = SECONDARY_MICRO_CRATERS[i];
+      craters += evalSculptedCrater(x, z, mc.x, mc.z, mc.radius, mc.depth, mc.rimHeight, 1.15);
+    }
+    return Math.max(1, 24 + escarps + riverChannel + craters);
+  }
+
+  if (biomeId === 'NORTHERN_LOWLANDS' || biomeId === 'SYRTIS_MAJOR') {
+    // Smooth flat plains with streamlined eolian yardang ridges & occasional dark basalt shield rises
+    const yardang =
+      Math.sin(x * 0.014 + z * 0.032) * 1.8 +
+      Math.sin(x * 0.004 - z * 0.005) * (biomeId === 'SYRTIS_MAJOR' ? 9.5 : 3.2);
+    const duneField = Math.cos(x * 0.042 + z * 0.018) * 1.1;
+    return Math.max(1, 8 + yardang + duneField);
+  }
+
+  // Default: JEZERO_CRATER Western Delta (NASA Mars Trek HiRISE DTM model)
+  // 1. Rising Western Delta escarpment toward NW with terraced sedimentary benches
+  const rawScarp = Math.max(0, (z - 160) * 0.048 - (x + 180) * 0.025);
+  const scarpBench =
+    rawScarp > 8
+      ? rawScarp + Math.sin(rawScarp * 0.55) * 1.15
+      : rawScarp;
+
+  // 2. Outer Jezero Crater Wall rise near map perimeter (natural amphitheater boundary)
+  const distFromCenter = Math.hypot(x, z);
+  const rimDist = Math.min(distFromCenter, 2200);
+  const rimWall = rimDist > 1350 ? Math.pow((rimDist - 1350) / 140, 1.55) * 14 : 0;
+
+  // 3. Aeolian sand ripples and rolling ridges
+  const dune =
+    Math.sin(x * 0.018) * Math.cos(z * 0.016) * 2.8 +
+    Math.sin(x * 0.006 + z * 0.008) * 5.6 +
+    Math.cos(x * 0.058 - z * 0.044) * 0.95;
+
+  // 4. Kodiak Butte flat-topped mesa plateau
+  const distToKodiak = Math.hypot(x + 440, z - 490);
+  const kodiakButte =
+    distToKodiak < 105
+      ? Math.min(24, (Math.cos((distToKodiak / 105) * Math.PI) + 1) * 15.5)
+      : 0;
+
+  // 5. Realistic flat-floored Impact Craters + raised ejecta rims
+  let craterDelta = 0;
+  for (let i = 0; i < MARS_CRATERS.length; i++) {
+    const c = MARS_CRATERS[i];
+    craterDelta += evalSculptedCrater(x, z, c.x, c.z, c.radius, c.depth, c.rimHeight, 1.0);
+  }
+  for (let i = 0; i < SECONDARY_MICRO_CRATERS.length; i++) {
+    const mc = SECONDARY_MICRO_CRATERS[i];
+    craterDelta += evalSculptedCrater(x, z, mc.x, mc.z, mc.radius, mc.depth, mc.rimHeight, 1.0);
+  }
+
+  return Math.max(0, 12 + scarpBench + dune + kodiakButte + rimWall + craterDelta);
+}
+
+// --- O(1) PRECOMPUTED 2D HEIGHTMAP LOOKUP GRID (COMPACT 257x257 QUANTIZED UINT16 BUFFER) ---
+export const TERRAIN_GRID_RES = 256; // 257x257 grid -> ~14.06m cell spacing across 3,600m x 3,600m
+const TERRAIN_GRID_STRIDE = TERRAIN_GRID_RES + 1;
+const TERRAIN_GRID_SPAN = WORLD_HALF_EXTENT * 2;
+const TERRAIN_GRID_CELL = TERRAIN_GRID_SPAN / TERRAIN_GRID_RES;
+const INV_GRID_CELL = 1 / TERRAIN_GRID_CELL;
+
+interface CompactElevationGrid {
+  data: Uint16Array;
+  minElev: number;
+  decodeScale: number;
+}
+
+const elevationGridCache = new Map<string, CompactElevationGrid>();
+
+function getOrBuildElevationGrid(
+  biomeId: MarsBiomeId,
+  frostMode: SeasonalFrostMode
+): CompactElevationGrid {
+  const key = `${biomeId}:${frostMode}`;
+  const existing = elevationGridCache.get(key);
+  if (existing) return existing;
+
+  // Keep memory lean: evict oldest cached biome grid if > 3 biomes cached
+  if (elevationGridCache.size >= 3) {
+    const oldestKey = elevationGridCache.keys().next().value;
+    if (oldestKey) elevationGridCache.delete(oldestKey);
+  }
+
+  const count = TERRAIN_GRID_STRIDE * TERRAIN_GRID_STRIDE;
+  const scratch = new Float32Array(count);
+  let minElev = Infinity;
+  let maxElev = -Infinity;
+
+  for (let iz = 0; iz <= TERRAIN_GRID_RES; iz++) {
+    const wz = -WORLD_HALF_EXTENT + iz * TERRAIN_GRID_CELL;
+    const rowOffset = iz * TERRAIN_GRID_STRIDE;
+    for (let ix = 0; ix <= TERRAIN_GRID_RES; ix++) {
+      const wx = -WORLD_HALF_EXTENT + ix * TERRAIN_GRID_CELL;
+      const elev = getMarsElevation(wx, wz, biomeId, frostMode);
+      scratch[rowOffset + ix] = elev;
+      if (elev < minElev) minElev = elev;
+      if (elev > maxElev) maxElev = elev;
+    }
+  }
+
+  const span = Math.max(1e-3, maxElev - minElev);
+  const encodeScale = 65535 / span;
+  const data = new Uint16Array(count);
+  for (let i = 0; i < count; i++) {
+    data[i] = Math.round((scratch[i] - minElev) * encodeScale);
+  }
+
+  const compactGrid: CompactElevationGrid = {
+    data,
+    minElev,
+    decodeScale: span / 65535,
+  };
+  elevationGridCache.set(key, compactGrid);
+  return compactGrid;
+}
+
+/**
+ * O(1) bilinearly interpolated terrain elevation lookup from precomputed 257x257 quantized heightmap grid.
+ * Eliminates expensive per-frame Three.js mesh raycasting during manual rover driving.
+ */
+export function sampleTerrainGridElevation(
+  x: number,
+  z: number,
+  biomeId: MarsBiomeId = 'JEZERO_CRATER',
+  frostMode: SeasonalFrostMode = 'SUBLIMATION'
+): number {
+  if (Math.abs(x) >= WORLD_HALF_EXTENT || Math.abs(z) >= WORLD_HALF_EXTENT) {
+    return getMarsElevation(x, z, biomeId, frostMode);
+  }
+  const { data, minElev, decodeScale } = getOrBuildElevationGrid(biomeId, frostMode);
+  const fx = Math.max(0, Math.min(TERRAIN_GRID_RES - 1e-4, (x + WORLD_HALF_EXTENT) * INV_GRID_CELL));
+  const fz = Math.max(0, Math.min(TERRAIN_GRID_RES - 1e-4, (z + WORLD_HALF_EXTENT) * INV_GRID_CELL));
+
+  const ix = fx | 0;
+  const iz = fz | 0;
+  const tx = fx - ix;
+  const tz = fz - iz;
+
+  const row0 = iz * TERRAIN_GRID_STRIDE + ix;
+  const row1 = row0 + TERRAIN_GRID_STRIDE;
+
+  const h00 = data[row0];
+  const h10 = data[row0 + 1];
+  const h01 = data[row1];
+  const h11 = data[row1 + 1];
+
+  const h0 = h00 + (h10 - h00) * tx;
+  const h1 = h01 + (h11 - h01) * tx;
+  return minElev + (h0 + (h1 - h0) * tz) * decodeScale;
+}
+
+/**
+ * O(1) surface normal and gradient lookup using precomputed heightmap grid central differences.
+ */
+export function sampleTerrainGridNormalAndSlope(
+  x: number,
+  z: number,
+  biomeId: MarsBiomeId = 'JEZERO_CRATER',
+  frostMode: SeasonalFrostMode = 'SUBLIMATION',
+  outNormal?: { x: number; y: number; z: number }
+): { elevation: number; gradient: number } {
+  const step = 3.5;
+  const hC = sampleTerrainGridElevation(x, z, biomeId, frostMode);
+  const hL = sampleTerrainGridElevation(x - step, z, biomeId, frostMode);
+  const hR = sampleTerrainGridElevation(x + step, z, biomeId, frostMode);
+  const hD = sampleTerrainGridElevation(x, z - step, biomeId, frostMode);
+  const hU = sampleTerrainGridElevation(x, z + step, biomeId, frostMode);
+
+  const dhdx = (hR - hL) / (2 * step);
+  const dhdz = (hU - hD) / (2 * step);
+  const nx = -dhdx;
+  const ny = 1.0;
+  const nz = -dhdz;
+  const invLen = 1 / Math.hypot(nx, ny, nz);
+
+  if (outNormal) {
+    outNormal.x = nx * invLen;
+    outNormal.y = ny * invLen;
+    outNormal.z = nz * invLen;
+  }
+
+  return {
+    elevation: hC,
+    gradient: Math.hypot(dhdx, dhdz),
+  };
+}
+
+/**
+ * Compute terrain slope (%) and dominant geology at any (x, z) coordinate for the active biome
+ */
+export function getTerrainMetricsAt(
+  x: number,
+  z: number,
+  biomeId: MarsBiomeId = 'JEZERO_CRATER',
+  frostMode: SeasonalFrostMode = 'SUBLIMATION',
+  datumBaseMeters = -2552
+): {
+  elevationMeters: number;
+  slopePercentage: number;
+  slopeAngleDegrees: number;
+  geology: TopographicTelemetry['dominantGeology'];
+  trafficability: number;
+  activeHotspot: RadiationHotspot | null;
+} {
+  const { elevation: h0, gradient } = sampleTerrainGridNormalAndSlope(x, z, biomeId, frostMode);
+
+  const slopePercentage = Math.round(Math.min(45, gradient * 100) * 10) / 10;
+  const slopeAngleDegrees = Math.round(Math.atan(gradient) * (180 / Math.PI) * 10) / 10;
+
+  let geology: TopographicTelemetry['dominantGeology'] = 'BASALT_BEDROCK';
+  if (biomeId === 'OLYMPUS_MONS' || biomeId === 'THARSIS_BULGE' || biomeId === 'SYRTIS_MAJOR') {
+    geology = slopePercentage > 22 ? 'BLOCKY_TALUS' : 'BASALT_BEDROCK';
+  } else if (biomeId === 'VALLES_MARINERIS') {
+    geology = slopePercentage > 16 ? 'BLOCKY_TALUS' : 'LOOSE_REGOLITH';
+  } else if (biomeId === 'HELLAS_PLANITIA' || biomeId === 'NORTHERN_LOWLANDS') {
+    geology = slopePercentage > 12 ? 'BLOCKY_TALUS' : 'AEOLIAN_RIPPLES';
+  } else if (biomeId === 'PLANUM_BOREUM' || biomeId === 'PLANUM_AUSTRALE') {
+    geology = slopePercentage > 14 ? 'BLOCKY_TALUS' : 'AEOLIAN_RIPPLES';
+  } else {
+    if (slopePercentage > 19) geology = 'BLOCKY_TALUS';
+    else if (slopePercentage > 12) geology = 'LOOSE_REGOLITH';
+    else if (Math.sin(x * 0.015 + z * 0.015) > 0.2) geology = 'AEOLIAN_RIPPLES';
+  }
+
+  const trafficability = Math.max(0.22, Math.min(0.96, Math.round((0.95 - slopePercentage * 0.025) * 100) / 100));
+
+  let activeHotspot: RadiationHotspot | null = null;
+  if (biomeId === 'JEZERO_CRATER') {
+    for (const hs of RADIATION_HOTSPOTS) {
+      if (Math.hypot(x - hs.x, z - hs.z) <= hs.radius) {
+        activeHotspot = hs;
+        break;
+      }
+    }
+  }
+
+  return {
+    elevationMeters: Math.round((datumBaseMeters + h0) * 10) / 10,
+    slopePercentage,
+    slopeAngleDegrees,
+    geology,
+    trafficability,
+    activeHotspot,
+  };
+}
+
+
